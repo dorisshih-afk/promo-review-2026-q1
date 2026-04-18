@@ -1,0 +1,4281 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>升遷評核系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f4f1ea;
+  --bg-paper: #faf7f0;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --ink-muted: #8b8378;
+  --line: #2c2825;
+  --line-soft: #d6cfc1;
+  --accent: #8b2e1f;
+  --accent-soft: #c2856b;
+  --gold: #b08d3a;
+  --green: #4a6b3a;
+  --shadow: 0 1px 0 rgba(26,26,26,0.06), 0 4px 16px rgba(26,26,26,0.04);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', 'Noto Sans TC', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(139,46,31,0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(176,141,58,0.04) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* ================== TYPOGRAPHY ================== */
+.serif { font-family: 'Fraunces', 'Noto Sans TC', serif; font-optical-sizing: auto; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; letter-spacing: -0.01em; }
+
+/* ================== LAYOUT ================== */
+.app {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 28px 80px;
+}
+
+.masthead {
+  border-bottom: 2px solid var(--line);
+  padding-bottom: 18px;
+  margin-bottom: 32px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.masthead-left { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+.brand {
+  font-family: 'Fraunces', serif;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-style: italic;
+}
+.brand-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-muted);
+  border-left: 1px solid var(--line-soft);
+  padding-left: 14px;
+}
+.session-info {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.session-info button {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: all 0.15s;
+}
+.session-info button:hover { background: var(--ink); color: var(--bg-paper); }
+
+/* ================== ROLE PICKER ================== */
+.role-picker {
+  background: var(--bg-paper);
+  border: 1px solid var(--line);
+  padding: 56px 48px;
+  max-width: 640px;
+  margin: 80px auto;
+  box-shadow: var(--shadow);
+  position: relative;
+}
+.role-picker::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--line-soft);
+  pointer-events: none;
+}
+.role-picker h2 {
+  font-size: 32px;
+  margin-bottom: 6px;
+  text-align: center;
+}
+.role-picker .sub {
+  text-align: center;
+  color: var(--ink-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  margin-bottom: 36px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.role-options { display: grid; gap: 14px; }
+.role-card {
+  border: 1px solid var(--line-soft);
+  padding: 22px 24px;
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.role-card:hover {
+  border-color: var(--line);
+  background: rgba(139,46,31,0.02);
+  transform: translateX(2px);
+}
+.role-card .label {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 500;
+}
+.role-card .desc {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+.role-card .arrow {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--ink-muted);
+  font-size: 18px;
+}
+
+/* ================== FORMS ================== */
+.field { margin-bottom: 16px; }
+.field label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+}
+.field input, .field select, .field textarea {
+  width: 100%;
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  transition: border-color 0.15s;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.cat-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cat-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-soft);
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+.cat-checkbox:hover { border-color: var(--ink); }
+.cat-checkbox input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); }
+
+.btn {
+  background: var(--ink);
+  color: var(--bg-paper);
+  border: none;
+  padding: 12px 22px;
+  font-family: 'IBM Plex Sans', 'Noto Sans TC', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-transform: uppercase;
+}
+.btn:hover { background: var(--accent); }
+.btn.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.btn.secondary:hover { background: var(--ink); color: var(--bg-paper); }
+.btn.danger { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.btn.danger:hover { background: var(--accent); color: var(--bg-paper); }
+.btn.small { padding: 6px 12px; font-size: 11px; }
+
+/* ================== TABS ================== */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 28px;
+}
+.tab {
+  background: none;
+  border: none;
+  padding: 14px 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--ink); }
+.tab.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* ================== EMPLOYEE LIST (manager view) ================== */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.section-header h3 {
+  font-size: 24px;
+}
+.section-header .meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.employee-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+
+.band-group {
+  margin-bottom: 32px;
+}
+.band-group:last-child { margin-bottom: 0; }
+.band-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 14px;
+  background: var(--ink);
+  color: var(--bg-paper);
+  margin-bottom: 14px;
+  border-left: 4px solid var(--accent);
+}
+.band-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: 'Fraunces', serif;
+}
+.band-from {
+  font-size: 14px;
+  color: var(--line-soft);
+  font-style: italic;
+}
+.band-arrow {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent-soft);
+  font-size: 14px;
+}
+.band-to {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--bg-paper);
+}
+.band-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--line-soft);
+}
+.emp-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--ink-muted);
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.en-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+.band-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 2px 8px;
+  background: var(--accent);
+  color: var(--bg-paper);
+  letter-spacing: 0.1em;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.tech-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 2px 8px;
+  background: var(--gold);
+  color: var(--bg-paper);
+  letter-spacing: 0.12em;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.tech-tag-large {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 3px 10px;
+  background: var(--gold);
+  color: var(--bg-paper);
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.mode-switcher {
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.mode-switcher-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+}
+.mode-switcher-tabs {
+  display: flex;
+  border: 1px solid var(--line);
+}
+.mode-tab {
+  background: transparent;
+  border: none;
+  padding: 8px 16px;
+  font-family: 'IBM Plex Sans', 'Noto Sans TC', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+}
+.mode-tab + .mode-tab { border-left: 1px solid var(--line); }
+.mode-tab:hover { background: rgba(139,46,31,0.05); }
+.mode-tab.active {
+  background: var(--ink);
+  color: var(--bg-paper);
+  font-weight: 500;
+}
+.mode-switcher-desc {
+  flex: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  min-width: 200px;
+}
+
+.trim-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 1px 6px;
+  background: var(--gold);
+  color: var(--bg-paper);
+  letter-spacing: 0.1em;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.disqualified-row td {
+  background: rgba(139,46,31,0.06) !important;
+}
+.disqualified-row:hover td {
+  background: rgba(139,46,31,0.10) !important;
+}
+.disqualified-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 2px 8px;
+  background: var(--accent);
+  color: var(--bg-paper);
+  letter-spacing: 0.12em;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 600;
+}
+.disqualified-num {
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.bonus-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 1px 6px;
+  background: var(--gold);
+  color: var(--bg-paper);
+  letter-spacing: 0.1em;
+  margin-left: 4px;
+  vertical-align: middle;
+  font-weight: 600;
+}
+
+.bonus-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+}
+.bonus-table th {
+  background: var(--ink);
+  color: var(--bg-paper);
+  text-align: left;
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+}
+.bonus-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14px;
+  vertical-align: middle;
+}
+.bonus-table tr:last-child td { border-bottom: none; }
+.bonus-input {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 6px 10px;
+  font-family: inherit;
+  color: var(--ink);
+}
+.bonus-input:focus { outline: none; border-color: var(--ink); }
+.bonus-input[type="number"] {
+  font-family: 'Fraunces', serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.bonus-emp-card {
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+.bonus-emp-card.expanded { border-color: var(--ink); }
+.bonus-emp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.bonus-emp-header:hover { background: rgba(139,46,31,0.03); }
+.bonus-emp-body {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--line-soft);
+}
+.bonus-item-row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+  padding: 12px 4px;
+  border-bottom: 1px dashed var(--line-soft);
+  align-items: center;
+}
+.bonus-item-row:last-child { border-bottom: none; }
+.bonus-item-name {
+  font-family: 'Fraunces', serif;
+  font-size: 14px;
+  font-weight: 500;
+}
+.bonus-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.bonus-select:focus { outline: none; border-color: var(--ink); }
+.bonus-multi-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bonus-multi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bonus-multi-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.bonus-detail, .bonus-cert-detail {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  margin-top: 6px;
+  transition: border-color 0.15s, opacity 0.15s;
+}
+.bonus-cert-detail { margin-top: 0; }
+.bonus-detail:focus, .bonus-cert-detail:focus { outline: none; border-color: var(--ink); }
+.bonus-detail:disabled, .bonus-cert-detail:disabled {
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Employee Form */
+.employee-form-panel {
+  background: var(--bg-paper);
+  border: 1px solid var(--line);
+  padding: 32px 36px;
+  position: relative;
+  box-shadow: var(--shadow);
+}
+.employee-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid var(--line);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+.employee-form-header h2 {
+  font-size: 28px;
+  font-style: italic;
+}
+.form-status {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 4px 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.form-status-draft { background: var(--accent); color: var(--bg-paper); }
+.form-status-submitted { background: var(--gold); color: var(--bg-paper); }
+.form-status-reviewed { background: var(--green); color: var(--bg-paper); }
+
+.form-summary {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+  padding: 14px 18px;
+  background: var(--bg);
+  border-left: 3px solid var(--ink);
+}
+.form-summary-item .label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  margin-bottom: 4px;
+}
+.form-summary-item .value {
+  font-family: 'Fraunces', serif;
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.form-items { margin-bottom: 24px; }
+.form-item-row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+  padding: 14px 4px;
+  border-bottom: 1px dashed var(--line-soft);
+  align-items: start;
+}
+.form-item-row:last-child { border-bottom: none; }
+.form-item-name {
+  font-family: 'Fraunces', serif;
+  font-size: 14px;
+  font-weight: 500;
+  padding-top: 8px;
+}
+.form-item-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.emp-select, .emp-detail, .emp-cert-detail {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.emp-select:focus, .emp-detail:focus, .emp-cert-detail:focus { outline: none; border-color: var(--ink); }
+.emp-select:disabled, .emp-detail:disabled, .emp-cert-detail:disabled, .emp-others:disabled, input[type="checkbox"]:disabled {
+  background: transparent;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 2px solid var(--line);
+}
+
+/* Review badges & row colors */
+.review-badge {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 2px 8px;
+  letter-spacing: 0.1em;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 600;
+}
+.review-badge-accepted { background: var(--green); color: var(--bg-paper); }
+.review-badge-rejected { background: var(--accent); color: var(--bg-paper); }
+.review-badge-adjusted { background: var(--gold); color: var(--bg-paper); }
+.review-badge-pending { background: var(--ink-muted); color: var(--bg-paper); }
+
+.review-accepted { background: rgba(74,107,58,0.06); }
+.review-rejected { background: rgba(139,46,31,0.05); opacity: 0.65; }
+.review-adjusted { background: rgba(176,141,58,0.06); }
+.review-pending {}
+
+.link-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px dashed var(--line-soft);
+}
+.link-row:last-child { border-bottom: none; }
+.link-row:hover { background: rgba(139,46,31,0.02); }
+.link-info { flex: 1; min-width: 0; }
+.link-url {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+  word-break: break-all;
+  letter-spacing: 0.02em;
+}
+.link-status {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 2px 8px;
+  letter-spacing: 0.1em;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 600;
+}
+.link-status-draft { background: var(--ink-muted); color: var(--bg-paper); }
+.link-status-submitted { background: var(--gold); color: var(--bg-paper); }
+.link-status-reviewed { background: var(--green); color: var(--bg-paper); }
+
+.review-btn {
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  color: var(--ink-soft);
+  font-family: 'IBM Plex Sans', 'Noto Sans TC', sans-serif;
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.04em;
+}
+.review-btn:hover { border-color: var(--ink); }
+.review-btn.small { padding: 4px 10px; font-size: 11px; }
+.review-btn.active.accept {
+  background: var(--green);
+  color: var(--bg-paper);
+  border-color: var(--green);
+}
+.review-btn.active.reject {
+  background: var(--accent);
+  color: var(--bg-paper);
+  border-color: var(--accent);
+}
+.review-adjust {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--ink-soft);
+  max-width: 250px;
+}
+.review-adjust:focus { outline: none; border-color: var(--ink); }
+.review-adjust.active.adjusted {
+  background: var(--gold);
+  color: var(--bg-paper);
+  border-color: var(--gold);
+}
+.bonus-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-soft);
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 12px;
+  transition: border-color 0.15s;
+}
+.bonus-check:hover { border-color: var(--ink); }
+.bonus-check input[type="checkbox"] { cursor: pointer; accent-color: var(--gold); margin: 0; }
+.bonus-summary {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--gold);
+  padding: 14px 18px;
+  margin-top: 18px;
+}
+.btn.small { padding: 6px 12px; font-size: 11px; }
+
+@media (max-width: 720px) {
+  .bonus-item-row { grid-template-columns: 1fr; gap: 6px; }
+}
+.employee-card {
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  padding: 20px 22px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.employee-card:hover {
+  border-color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.employee-card .name {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.employee-card .dept {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-bottom: 16px;
+}
+.employee-card .status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 4px 8px;
+  border: 1px solid;
+  display: inline-block;
+}
+.status.scored { color: var(--green); border-color: var(--green); }
+.status.pending { color: var(--accent); border-color: var(--accent); }
+.employee-card .quickscore {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  font-family: 'Fraunces', serif;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ================== SCORING FORM ================== */
+.scoring-panel {
+  background: var(--bg-paper);
+  border: 1px solid var(--line);
+  padding: 36px 40px;
+  position: relative;
+  box-shadow: var(--shadow);
+}
+.scoring-panel::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--line-soft);
+  pointer-events: none;
+}
+.scoring-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 2px solid var(--line);
+  padding-bottom: 16px;
+  margin-bottom: 28px;
+}
+.scoring-header .who h2 {
+  font-size: 36px;
+  font-style: italic;
+}
+.scoring-header .who .dept {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+.dimension {
+  padding: 22px 0;
+  border-bottom: 1px dashed var(--line-soft);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: center;
+}
+.dimension:last-of-type { border-bottom: none; }
+.dimension .info .name {
+  font-family: 'Fraunces', serif;
+  font-size: 20px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.dimension .info .desc {
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.score-control { display: flex; align-items: center; gap: 12px; }
+.score-control input[type="range"] {
+  -webkit-appearance: none;
+  width: 200px;
+  height: 4px;
+  background: var(--line-soft);
+  outline: none;
+  cursor: pointer;
+}
+.score-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg-paper);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.score-control input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg-paper);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.score-control input[type="number"] {
+  width: 70px;
+  text-align: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 6px 4px;
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.score-control input[type="number"]::-webkit-outer-spin-button,
+.score-control input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.score-control input[type="number"] { -moz-appearance: textfield; }
+.score-control .of {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.scoring-footer {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 2px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.summary {
+  font-family: 'Fraunces', serif;
+}
+.summary .label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  display: block;
+  margin-bottom: 2px;
+}
+.summary .value {
+  font-size: 38px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.summary .value .max {
+  color: var(--ink-muted);
+  font-size: 18px;
+  font-weight: 400;
+}
+
+/* ================== ADMIN STATS ================== */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  padding: 20px 22px;
+}
+.stat-card .label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  margin-bottom: 10px;
+}
+.stat-card .value {
+  font-family: 'Fraunces', serif;
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+}
+.stat-card .value.accent { color: var(--accent); }
+.stat-card .delta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 6px;
+}
+
+table.results {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-paper);
+  border: 1px solid var(--line);
+  margin-top: 12px;
+}
+table.results th {
+  background: var(--ink);
+  color: var(--bg-paper);
+  text-align: left;
+  padding: 12px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+}
+table.results th.num, table.results td.num { text-align: right; }
+table.results td {
+  padding: 14px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14px;
+}
+table.results tr:last-child td { border-bottom: none; }
+table.results tr:hover { background: rgba(139,46,31,0.03); }
+table.results .name { font-family: 'Fraunces', serif; font-weight: 500; font-size: 16px; }
+table.results .score-cell {
+  font-family: 'Fraunces', serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.detail-toggle {
+  background: none;
+  border: 1px solid var(--line-soft);
+  padding: 4px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.detail-toggle:hover { background: var(--ink); color: var(--bg-paper); border-color: var(--ink); }
+
+.detail-row td {
+  background: rgba(139,46,31,0.03);
+  padding: 0;
+}
+.detail-content { padding: 20px 28px; }
+.detail-content h4 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+}
+.detail-table th, .detail-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+.detail-table th {
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+}
+.detail-table td.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+.detail-table tr.summary-row { background: rgba(26,26,26,0.04); font-weight: 600; }
+.detail-table tr.summary-row td.num { color: var(--accent); }
+
+/* ================== ADMIN PANELS ================== */
+.admin-section {
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  padding: 24px 28px;
+  margin-bottom: 18px;
+}
+.admin-section h3 {
+  font-size: 20px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line-soft);
+}
+.list-row:last-child { border-bottom: none; }
+.list-row .info .primary { font-family: 'Fraunces', serif; font-size: 16px; font-weight: 500; }
+.list-row .info .secondary { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+.add-form {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.add-form.simple { grid-template-columns: 1fr 1fr auto; }
+.add-form input, .add-form select {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+/* ================== TOAST ================== */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--ink);
+  color: var(--bg-paper);
+  padding: 14px 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  transition: transform 0.3s;
+  z-index: 1000;
+  border-left: 3px solid var(--accent);
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ================== UTILITY ================== */
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--ink-muted);
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 18px;
+}
+
+.hidden { display: none !important; }
+
+.error-msg {
+  color: var(--accent);
+  font-size: 13px;
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@media (max-width: 720px) {
+  .scoring-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .scoring-header .who h2 { font-size: 28px; }
+  .dimension { grid-template-columns: 1fr; gap: 12px; }
+  .score-control input[type="range"] { width: 100%; }
+  .role-picker { padding: 36px 24px; margin: 40px auto; }
+  .scoring-panel { padding: 24px 20px; }
+  .add-form { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div id="app" class="app"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+// =========================================================================
+// STORAGE LAYER (window.storage with shared=true so manager can see all data)
+// =========================================================================
+const STORE_KEY = 'promotion_review_v23';
+
+const defaultState = () => ({
+  managerPassword: 'dorisshih',
+  // 部門類別:用於判斷員工屬於哪一類部門
+  // 部門名稱中包含哪個關鍵字,就屬於哪一類
+  deptCategories: [
+    { id: 'sw_design', name: '軟體設計', tech: 'BIOS', keyword: '軟體設計' },
+    { id: 'fw_dev', name: '韌體開發', tech: 'EC', keyword: '韌體開發' },
+    { id: 'sw_app', name: '軟體應用設計', tech: 'Driver', keyword: '軟體應用設計' }
+  ],
+  managers: [
+    // Robby:全部評分(canReview 留空陣列代表全部),不歸屬任何部門
+    { id: 'mgr_robby', name: 'Robby', canReview: [], ownDeptKeyword: '' },
+    // 軟體設計部主管:評 BIOS + EC,但排除自己部門
+    { id: 'mgr_wilbur', name: 'Wilbur', canReview: ['sw_design', 'fw_dev'], ownDeptKeyword: 'Wilbur' },
+    { id: 'mgr_doris', name: 'Doris', canReview: ['sw_design', 'fw_dev'], ownDeptKeyword: 'Doris' },
+    // 韌體開發部主管:評 BIOS + EC,但排除自己部門
+    { id: 'mgr_roy', name: 'Roy', canReview: ['sw_design', 'fw_dev'], ownDeptKeyword: 'Roy' },
+    // 軟體應用設計部主管(Driver):互評對方部門,仍規避自己部門
+    { id: 'mgr_dash', name: 'Dash', canReview: ['sw_app'], ownDeptKeyword: 'Dash' },
+    { id: 'mgr_kegin', name: 'Kegin', canReview: ['sw_app'], ownDeptKeyword: 'Kegin' },
+    // 匿名資深評審 - BIOS 2 位、EC 1 位、Driver(SA)2 位,各自規避自己部門
+    { id: 'mgr_senior_sw1', name: '資深評審 SW1', canReview: ['sw_design'], ownDeptKeyword: 'Wilbur' },
+    { id: 'mgr_senior_sw2', name: '資深評審 SW2', canReview: ['sw_design'], ownDeptKeyword: 'Doris' },
+    { id: 'mgr_senior_ec1', name: '資深評審 EC1', canReview: ['fw_dev', 'sw_design'], ownDeptKeyword: 'Roy' },
+    { id: 'mgr_senior_sa1', name: '資深評審 SA1', canReview: ['sw_app'], ownDeptKeyword: 'Kegin' },
+    { id: 'mgr_senior_sa2', name: '資深評審 SA2', canReview: ['sw_app'], ownDeptKeyword: 'Dash' }
+  ],
+  employees: [
+    // Band 7 → 8
+    { id: 'T150120', name: '周家弘', enName: 'Jaco.Chou', dept: '臺北軟體應用設計二部(Dash)', email: 'Jaco.Chou@lcfuturecenter.com', gender: 'M', currentBand: 7 },
+    { id: 'T210198', name: '陳暐峰', enName: 'Dunhill.Chen', dept: '臺北平臺韌體開發部(Roy)', email: 'Dunhill.Chen@lcfuturecenter.com', gender: 'M', currentBand: 7 },
+    { id: 'T200254', name: '朱正裕', enName: 'Jim.zhu', dept: '臺北軟體設計一部(Wilbur)', email: 'Jim.zhu@lcfuturecenter.com', gender: 'M', currentBand: 7 },
+    // Band 6 → 7
+    { id: 'T190190', name: '陳羿婷', enName: 'Yoonie.Chen', dept: '臺北軟體應用設計二部(Dash)', email: 'Yoonie.Chen@lcfuturecenter.com', gender: 'F', currentBand: 6 },
+    { id: 'T200083', name: '周子翔', enName: 'Sean.Chou', dept: '臺北軟體應用設計二部(Dash)', email: 'Sean.Chou@lcfuturecenter.com', gender: 'M', currentBand: 6 },
+    { id: 'T2500BJ', name: '李承諺', enName: 'Allen.Lee', dept: '臺北軟體應用設計一部(Kegin)', email: 'Allen.Lee@lcfuturecenter.com', gender: 'M', currentBand: 6 },
+    { id: 'T2400B2', name: '高佳御', enName: 'Diana.Gao', dept: '臺北平臺韌體開發部(Roy)', email: 'Diana.Gao@lcfuturecenter.com', gender: 'F', currentBand: 6 },
+    { id: 'T22004G', name: '葉舜弘', enName: 'Jeff.Yeh', dept: '臺北軟體設計一部(Wilbur)', email: 'Jeff.Yeh@lcfuturecenter.com', gender: 'M', currentBand: 6 },
+    { id: 'T23002D', name: '趙翎傑', enName: 'Jey1.Zhao', dept: '臺北軟體設計一部(Wilbur)', email: 'Jey1.Zhao@lcfuturecenter.com', gender: 'M', currentBand: 6 },
+    { id: 'T22007Q', name: '鄧陳得', enName: 'Jackson1.Teng', dept: '臺北軟體設計二部(Doris)', email: 'Jackson1.Teng@lcfuturecenter.com', gender: 'M', currentBand: 6 },
+    { id: 'T22008E', name: '陳佳鈺', enName: 'Irene1.Chen', dept: '臺北軟體應用設計二部(Dash)', email: 'Irene1.Chen@lcfuturecenter.com', gender: 'M', currentBand: 6 },
+    // Band 5 → 6
+    { id: 'T230030', name: '楊睿誠', enName: 'Charles.Yang', dept: '臺北軟體設計二部(Doris)', email: 'Charles.Yang@lcfuturecenter.com', gender: 'M', currentBand: 5 },
+    { id: 'T2400B1', name: '游喻瑄', enName: 'Betty.Yu', dept: '臺北軟體設計二部(Doris)', email: 'Betty.Yu@lcfuturecenter.com', gender: 'F', currentBand: 5 },
+    { id: 'T24007R', name: '徐崇勝', enName: 'Tim.Hsu', dept: '臺北軟體設計二部(Doris)', email: 'Tim.Hsu@lcfuturecenter.com', gender: 'M', currentBand: 5 },
+    { id: 'T220099', name: '蘇哲正', enName: 'John1.Su', dept: '臺北軟體設計一部(Wilbur)', email: 'John1.Su@lcfuturecenter.com', gender: 'M', currentBand: 5 },
+    { id: 'T23003L', name: '黃晉恆', enName: 'Mars.Huang', dept: '臺北軟體設計一部(Wilbur)', email: 'Mars.Huang@lcfuturecenter.com', gender: 'M', currentBand: 5 },
+    { id: 'T24007Q', name: '黃品超', enName: 'Dylan.Huang', dept: '臺北軟體設計一部(Wilbur)', email: 'Dylan.Huang@lcfuturecenter.com', gender: 'M', currentBand: 5 },
+    { id: 'T240091', name: '劉明翰', enName: 'Hans.Liu', dept: '臺北軟體設計一部(Wilbur)', email: 'Hans.Liu@lcfuturecenter.com', gender: 'M', currentBand: 5 }
+  ],
+  dimensions: [
+    // Tech Competence
+    { id: 'tc1', group: 'Tech Competence', name: 'Innovative Concept', desc: '創新概念與想法' },
+    { id: 'tc2', group: 'Tech Competence', name: 'Technical Deep Dive', desc: '技術深度與專業能力' },
+    { id: 'tc3', group: 'Tech Competence', name: 'Issue Identification and Debugging', desc: '問題識別與除錯能力' },
+    { id: 'tc4', group: 'Tech Competence', name: 'Process Execution and Improvement', desc: '流程執行與改善' },
+    // Core Competence
+    { id: 'cc1', group: 'Core Competence', name: 'Communication', desc: '溝通能力' },
+    { id: 'cc2', group: 'Core Competence', name: 'Problem Solving', desc: '解決問題的能力' },
+    { id: 'cc3', group: 'Core Competence', name: 'Leadership', desc: '領導力' },
+    { id: 'cc4', group: 'Core Competence', name: 'Contribution', desc: '對團隊與組織的貢獻' },
+    { id: 'cc5', group: 'Core Competence', name: 'Customer Experience', desc: '客戶體驗與服務意識' }
+  ],
+  // scores[employeeId][managerId][dimensionId] = number
+  scores: {},
+  // extraBonus[employeeId] = 管理員直接填的(原本的)
+  extraBonus: {},
+  // empSubmissions[employeeId] = {
+  //   status: 'draft' | 'submitted' | 'reviewed',
+  //   data: { items, itemDetails, certDetails, others, othersNote },  // 員工填的
+  //   reviewedItems: { itemId: 'pending'|'accepted'|'rejected'|{adjustedTo: optionId} }
+  //   reviewedCertItems: { optionId: 'pending'|'accepted'|'rejected' }
+  //   submittedAt: timestamp
+  // }
+  empSubmissions: {}
+});
+
+// Extra Contribution 加分項目定義(寫死,跟公司標準對應)
+const EXTRA_CONTRIBUTION_ITEMS = [
+  {
+    id: 'stamp', name: 'STAMP Item', type: 'single',
+    note: 'Reference STAMP item list',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: 't2', label: 'KI項目 Report 到 T2 等級', score: 2 },
+      { id: 't1', label: 'KI項目 Report 到 T1 等級', score: 3 },
+      { id: 'ceo', label: 'KI項目 Report 到 CEO 等級', score: 4 }
+    ]
+  },
+  {
+    id: 'innovation', name: 'Innovation Project / Proposal', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: '1', label: '列舉項目 = 1', score: 1 },
+      { id: '2', label: '列舉項目 = 2', score: 2 },
+      { id: '3plus', label: '列舉項目 ≥ 3', score: 3 }
+    ]
+  },
+  {
+    id: 'ipp', name: 'IPP Amount (VTT/NTICP Approved)', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: 'lt05', label: '0.1 ≤ 數量 < 0.5', score: 1 },
+      { id: 'lt1', label: '0.5 ≤ 數量 < 1', score: 2 },
+      { id: 'eq1', label: '數量 = 1', score: 3 },
+      { id: 'lt2', label: '1 < 數量 ≤ 2', score: 4 },
+      { id: 'lt3', label: '2 < 數量 ≤ 3', score: 5 },
+      { id: 'gt3', label: '數量 > 3', score: 6 }
+    ]
+  },
+  {
+    id: 'conference', name: 'Technical Conference / Paper', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: 'company', label: '等級為公司級', score: 1 },
+      { id: 'external', label: '等級為外部', score: 5 }
+    ]
+  },
+  {
+    id: 'award', name: 'Award (Internal / External)', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: 'i1', label: '列舉項目 = 1', score: 1 },
+      { id: 'i2plus', label: '列舉項目 ≥ 2', score: 1.2 },
+      { id: 'external', label: 'External', score: 5 }
+    ]
+  },
+  {
+    id: 'nfi', name: 'NFI', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: '1', label: '列舉項目 = 1', score: 1 },
+      { id: '2', label: '列舉項目 = 2', score: 1.2 },
+      { id: '3plus', label: '列舉項目 ≥ 3', score: 1.4 }
+    ]
+  },
+  {
+    id: 'cert', name: 'Certification', type: 'multi',
+    note: '可複選(多張證照分數相加)',
+    options: [
+      { id: 'pmp', label: 'PMP / PMI / NPDP 執照', score: 3 },
+      { id: 'toeic_green', label: 'TOEIC 綠色 470-725', score: 1 },
+      { id: 'toeic_blue', label: 'TOEIC 藍色 730-855', score: 3 },
+      { id: 'toeic_gold', label: 'TOEIC 金色 860-990', score: 5 },
+      { id: 'jlpt_n2', label: '日文檢定 JLPT N2', score: 3 },
+      { id: 'jlpt_n1', label: '日文檢定 JLPT N1', score: 5 }
+    ]
+  },
+  {
+    id: 'travel', name: 'Travel Support (Covid-19 期間)', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: '30_59', label: '30-59 days', score: 1 },
+      { id: '60_89', label: '60-89 days', score: 2 },
+      { id: '90_119', label: '90-119 days', score: 3 },
+      { id: '120_149', label: '120-149 days', score: 4 },
+      { id: '150_179', label: '150-179 days', score: 5 },
+      { id: '180plus', label: '180 days 以上', score: 6 }
+    ]
+  },
+  {
+    id: 'lecturer', name: '講師資格', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: 'company', label: '公司級講師', score: 1 },
+      { id: 'tech_conf', label: '技術大會講師', score: 1 }
+    ]
+  },
+  {
+    id: 'linc', name: 'Linc 大賽', type: 'single',
+    options: [
+      { id: 'none', label: '無', score: 0 },
+      { id: 'selected', label: '入選', score: 1 },
+      { id: 'won', label: '獲獎', score: 3 }
+    ]
+  }
+];
+
+async function loadState() {
+  try {
+    const result = await window.storage.get(STORE_KEY, true);
+    if (result && result.value) {
+      const parsed = JSON.parse(result.value);
+      // merge to ensure new fields exist
+      return Object.assign(defaultState(), parsed);
+    }
+  } catch (e) {
+    // key doesn't exist
+  }
+  const ds = defaultState();
+  await saveState(ds);
+  return ds;
+}
+
+async function saveState(state) {
+  try {
+    await window.storage.set(STORE_KEY, JSON.stringify(state), true);
+  } catch (e) {
+    console.error('儲存失敗', e);
+    toast('儲存失敗:' + e.message);
+  }
+}
+
+// =========================================================================
+// APP STATE
+// =========================================================================
+let state = null;
+let view = { mode: 'picker', payload: null };  // picker | manager_select | manager_score | admin_login | admin
+
+// =========================================================================
+// UTILITIES
+// =========================================================================
+function uid(prefix) { return prefix + '_' + Math.random().toString(36).slice(2, 9); }
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+function getEmployeeScores(empId) {
+  return state.scores[empId] || {};
+}
+
+// 取得員工的 Extra Contribution 項目選擇
+function getEmployeeBonusData(empId) {
+  return state.extraBonus?.[empId] || { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' };
+}
+
+// 取得員工自填申請資料
+function getEmployeeSubmission(empId) {
+  return state.empSubmissions?.[empId] || {
+    status: 'draft',
+    data: { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' },
+    reviewedItems: {},
+    reviewedCertItems: {},
+    submittedAt: null
+  };
+}
+
+// 把員工提交 + 管理員 review 結果合併,套用到 state.extraBonus(讓 getEmployeeBonus 直接讀)
+function applyReviewedSubmission(empId) {
+  const sub = getEmployeeSubmission(empId);
+  if (sub.status !== 'reviewed') return;
+  if (!state.extraBonus) state.extraBonus = {};
+  const result = { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' };
+  const data = sub.data || {};
+
+  // 遍歷每個 single item
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (item.type === 'single') {
+      const review = sub.reviewedItems?.[item.id];
+      const empSel = data.items?.[item.id];
+      if (!empSel || empSel === 'none') return;
+      if (review === 'accepted') {
+        result.items[item.id] = empSel;
+        if (data.itemDetails?.[item.id]) result.itemDetails[item.id] = data.itemDetails[item.id];
+      } else if (review && typeof review === 'object' && review.adjustedTo) {
+        result.items[item.id] = review.adjustedTo;
+        if (data.itemDetails?.[item.id]) result.itemDetails[item.id] = data.itemDetails[item.id];
+      }
+      // rejected / pending 都不計入
+    } else if (item.type === 'multi') {
+      const empArr = Array.isArray(data.items?.[item.id]) ? data.items[item.id] : [];
+      const accepted = [];
+      empArr.forEach(optId => {
+        const review = sub.reviewedCertItems?.[optId];
+        if (review === 'accepted') {
+          accepted.push(optId);
+          if (data.certDetails?.[optId]) result.certDetails[optId] = data.certDetails[optId];
+        }
+      });
+      if (accepted.length > 0) result.items[item.id] = accepted;
+    }
+  });
+
+  // Others 也要 review
+  const othersReview = sub.reviewedItems?.others;
+  if (othersReview === 'accepted' && data.others > 0) {
+    result.others = data.others;
+    result.othersNote = data.othersNote || '';
+  }
+
+  state.extraBonus[empId] = result;
+}
+
+// 從選擇的項目計算 extra bonus 總分
+function getEmployeeBonus(empId) {
+  const data = getEmployeeBonusData(empId);
+  let total = 0;
+  const breakdown = [];  // [{itemName, label, score, detail}]
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    const sel = data.items?.[item.id];
+    if (item.type === 'single') {
+      if (!sel || sel === 'none') return;
+      const opt = item.options.find(o => o.id === sel);
+      if (opt && opt.score > 0) {
+        total += opt.score;
+        const detail = data.itemDetails?.[item.id] || '';
+        breakdown.push({ itemName: item.name, label: opt.label, score: opt.score, detail });
+      }
+    } else if (item.type === 'multi') {
+      const arr = Array.isArray(sel) ? sel : [];
+      arr.forEach(optId => {
+        const opt = item.options.find(o => o.id === optId);
+        if (opt && opt.score > 0) {
+          total += opt.score;
+          const detail = data.certDetails?.[optId] || '';
+          breakdown.push({ itemName: item.name, label: opt.label, score: opt.score, detail });
+        }
+      });
+    }
+  });
+  // Others 自由填的分數
+  const othersScore = Number(data.others) || 0;
+  if (othersScore > 0) {
+    total += othersScore;
+    breakdown.push({ itemName: 'Others', label: data.othersNote || '(未填說明)', score: othersScore, detail: '' });
+  }
+  // note 給 CSV 用,把細項也帶進去
+  const noteStr = breakdown.map(b => {
+    const det = b.detail ? ` [${b.detail}]` : '';
+    return `${b.itemName}(${b.label})${det}: +${b.score}`;
+  }).join('; ');
+  return { score: Math.round(total * 10) / 10, breakdown, note: noteStr };
+}
+
+// 判斷員工屬於哪個部門類別 id(用最長關鍵字匹配,避免「軟體設計」誤判到「軟體應用設計」員工)
+function getEmployeeCategory(emp) {
+  if (!emp.dept || !state.deptCategories) return null;
+  const sorted = [...state.deptCategories].sort((a, b) => b.keyword.length - a.keyword.length);
+  for (const cat of sorted) {
+    if (emp.dept.includes(cat.keyword)) return cat.id;
+  }
+  return null;
+}
+
+// 取得員工技術領域標籤(BIOS / EC / Driver)
+function getEmployeeTech(emp) {
+  const catId = getEmployeeCategory(emp);
+  if (!catId) return '';
+  const cat = state.deptCategories.find(c => c.id === catId);
+  return cat ? (cat.tech || cat.name) : '';
+}
+
+// 顯示用部門名稱:把括號(主管名)拿掉
+function displayDept(dept) {
+  if (!dept) return '';
+  return dept.replace(/[((][^))]*[))]/g, '').trim();
+}
+
+// 該員工是否屬於該主管的自己部門
+function isOwnDept(emp, mgr) {
+  if (!mgr.ownDeptKeyword || !emp.dept) return false;
+  return emp.dept.includes('(' + mgr.ownDeptKeyword + ')');
+}
+
+// 該主管能否評分此員工
+function canManagerReview(mgr, emp) {
+  // 規則 1:不能評自己部門的人(避嫌)
+  if (isOwnDept(emp, mgr)) return false;
+  // 規則 2:canReview 留空陣列 = 可評所有人(扣掉自己部門後)
+  if (!mgr.canReview || mgr.canReview.length === 0) return true;
+  // 規則 3:技術領域必須在白名單內
+  const empCat = getEmployeeCategory(emp);
+  if (!empCat) return false;
+  return mgr.canReview.includes(empCat);
+}
+
+// 該主管可以評分的員工
+function eligibleEmployees(mgr) {
+  return state.employees.filter(e => canManagerReview(mgr, e));
+}
+
+// 該員工會被哪些主管評分
+function eligibleManagers(emp) {
+  return state.managers.filter(m => canManagerReview(m, emp));
+}
+
+function getManagerScoreForEmployee(empId, mgrId) {
+  return (state.scores[empId] && state.scores[empId][mgrId]) || {};
+}
+
+function computeManagerTotal(empId, mgrId) {
+  const s = getManagerScoreForEmployee(empId, mgrId);
+  let sum = 0, count = 0;
+  state.dimensions.forEach(d => {
+    if (typeof s[d.id] === 'number') { sum += s[d.id]; count++; }
+  });
+  return count === state.dimensions.length ? sum : null;  // null if incomplete
+}
+
+function computeEmployeeAverage(empId) {
+  const empScores = getEmployeeScores(empId);
+  const totals = [];
+  Object.keys(empScores).forEach(mgrId => {
+    const t = computeManagerTotal(empId, mgrId);
+    if (t !== null) totals.push(t);
+  });
+  if (totals.length === 0) return { avg: null, count: 0 };
+  const avg = totals.reduce((a,b) => a+b, 0) / totals.length;
+  return { avg, count: totals.length };
+}
+
+// 按「每個維度個別」排除最高最低分,然後加總所有維度的調整後平均
+// 啟動條件:該維度有效評分 ≥ 5 人(扣掉最高最低後仍有 3 人)
+function computeEmployeeAverageTrimmed(empId) {
+  const empScores = getEmployeeScores(empId);
+  const mgrIdsWithComplete = Object.keys(empScores).filter(mgrId => {
+    return computeManagerTotal(empId, mgrId) !== null;
+  });
+  if (mgrIdsWithComplete.length === 0) return { avg: null, count: 0, trimmedAny: false };
+
+  let sumOfDimAvgs = 0;
+  let trimmedAny = false;
+  state.dimensions.forEach(d => {
+    const vals = mgrIdsWithComplete
+      .map(mgrId => empScores[mgrId][d.id])
+      .filter(v => typeof v === 'number');
+    let useVals = vals;
+    if (vals.length >= 5) {
+      const sorted = [...vals].sort((a, b) => a - b);
+      useVals = sorted.slice(1, -1);  // 去頭去尾
+      trimmedAny = true;
+    }
+    const dimAvg = useVals.reduce((a,b) => a+b, 0) / useVals.length;
+    sumOfDimAvgs += dimAvg;
+  });
+  return { avg: sumOfDimAvgs, count: mgrIdsWithComplete.length, trimmedAny };
+}
+
+// 同上但回傳每維度的詳細資訊(供 detail 頁顯示)
+function computeDimensionStats(empId) {
+  const empScores = getEmployeeScores(empId);
+  const mgrIdsWithComplete = Object.keys(empScores).filter(mgrId => {
+    return computeManagerTotal(empId, mgrId) !== null;
+  });
+  const stats = {};
+  state.dimensions.forEach(d => {
+    const vals = mgrIdsWithComplete
+      .map(mgrId => ({ mgrId, val: empScores[mgrId][d.id] }))
+      .filter(x => typeof x.val === 'number');
+    if (vals.length === 0) {
+      stats[d.id] = { rawAvg: null, trimmedAvg: null, trimmed: false, excludedMgrs: [] };
+      return;
+    }
+    const rawAvg = vals.reduce((a, x) => a + x.val, 0) / vals.length;
+    let trimmedAvg = rawAvg;
+    let trimmed = false;
+    let excludedMgrs = [];
+    if (vals.length >= 5) {
+      const sorted = [...vals].sort((a, b) => a.val - b.val);
+      const lowest = sorted[0];
+      const highest = sorted[sorted.length - 1];
+      excludedMgrs = [lowest.mgrId, highest.mgrId];
+      const remaining = sorted.slice(1, -1);
+      trimmedAvg = remaining.reduce((a, x) => a + x.val, 0) / remaining.length;
+      trimmed = true;
+    }
+    stats[d.id] = { rawAvg, trimmedAvg, trimmed, excludedMgrs };
+  });
+  return stats;
+}
+
+function fmt(n, d=2) { return n === null || n === undefined ? '—' : Number(n).toFixed(d); }
+
+// 產生員工自填的專屬連結
+function buildEmployeeLink(empId) {
+  const base = window.location.origin + window.location.pathname;
+  return base + '?emp=' + encodeURIComponent(empId);
+}
+
+// 提交狀態標籤
+function renderSubmissionStatusTag(status) {
+  if (status === 'submitted') return '<span class="link-status link-status-submitted">已提交 待審</span>';
+  if (status === 'reviewed') return '<span class="link-status link-status-reviewed">已審核</span>';
+  return '<span class="link-status link-status-draft">尚未提交</span>';
+}
+
+// =========================================================================
+// RENDER ROOT
+// =========================================================================
+function render() {
+  const app = document.getElementById('app');
+  let html = '';
+
+  if (view.mode === 'picker') {
+    html = renderRolePicker();
+  } else if (view.mode === 'employee_form') {
+    const emp = state.employees.find(e => e.id === view.payload.empId);
+    html = renderHeader('Extra Contribution 申請', emp ? emp.name + ' / 自評加分' : '錯誤') + renderEmployeeForm();
+  } else if (view.mode === 'manager_select') {
+    html = renderHeader('主管登入', '請選擇您的姓名') + renderManagerSelect();
+  } else if (view.mode === 'manager_set_password') {
+    const mgr = state.managers.find(m => m.id === view.payload.managerId);
+    html = renderHeader('首次登入', mgr.name + ' / 設定密碼') + renderManagerSetPassword();
+  } else if (view.mode === 'manager_login_password') {
+    const mgr = state.managers.find(m => m.id === view.payload.managerId);
+    html = renderHeader('主管登入', mgr.name + ' / 請輸入密碼') + renderManagerLoginPassword();
+  } else if (view.mode === 'manager_score') {
+    const mgr = state.managers.find(m => m.id === view.payload.managerId);
+    html = renderHeader('主管評核', mgr.name + ' / 評分作業', true) + renderManagerScoring();
+  } else if (view.mode === 'admin_login') {
+    html = renderHeader('管理者登入', '請輸入密碼') + renderAdminLogin();
+  } else if (view.mode === 'admin') {
+    html = renderHeader('管理後台', '完整數據與設定', true) + renderAdmin();
+  }
+
+  app.innerHTML = html;
+  attachHandlers();
+}
+
+function renderHeader(title, subtitle, withLogout=false) {
+  return `
+    <div class="masthead">
+      <div class="masthead-left">
+        <div class="brand">Promotion Review</div>
+        <div class="brand-sub">${title} · ${subtitle}</div>
+      </div>
+      <div class="session-info">
+        <span>${new Date().toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'})}</span>
+        ${withLogout ? '<button data-action="logout">返回</button>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// VIEW: ROLE PICKER
+// =========================================================================
+function renderRolePicker() {
+  return `
+    <div class="role-picker">
+      <h2>升遷評核系統</h2>
+      <div class="sub">Promotion Review · Anno 2026</div>
+      <div class="role-options">
+        <button class="role-card" data-action="goto-manager">
+          <div>
+            <div class="label">主管入口</div>
+            <div class="desc">為部屬進行升遷評分</div>
+          </div>
+          <div class="arrow">→</div>
+        </button>
+        <button class="role-card" data-action="goto-admin">
+          <div>
+            <div class="label">管理者入口</div>
+            <div class="desc">查看統計、管理人員與評分維度</div>
+          </div>
+          <div class="arrow">→</div>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// VIEW: MANAGER SELECT
+// =========================================================================
+function renderManagerSelect() {
+  if (state.managers.length === 0) {
+    return `
+      <div class="empty">尚未建立任何主管,請通知管理者於後台新增。</div>
+      <div style="text-align:center;margin-top:20px;">
+        <button class="btn secondary" data-action="back-to-picker">返回首頁</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="employee-grid">
+      ${state.managers.map(m => `
+        <button class="employee-card" data-action="select-manager" data-id="${m.id}">
+          <div class="name">${escapeHtml(m.name)}</div>
+          <div class="dept">主管 · 評分權限</div>
+        </button>
+      `).join('')}
+    </div>
+    <div style="margin-top:24px;text-align:center;">
+      <button class="btn secondary" data-action="back-to-picker">返回首頁</button>
+    </div>
+  `;
+}
+
+// =========================================================================
+// VIEW: MANAGER SCORING
+// =========================================================================
+// =========================================================================
+// VIEW: MANAGER SET PASSWORD (首次登入)
+// =========================================================================
+// =========================================================================
+// VIEW: EMPLOYEE FORM (員工自填 Extra Contribution)
+// =========================================================================
+function renderEmployeeForm() {
+  const empId = view.payload.empId;
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) {
+    return `<div class="empty">找不到此員工(ID: ${escapeHtml(empId)})。請確認連結是否正確。</div>`;
+  }
+  const sub = getEmployeeSubmission(empId);
+  const data = sub.data || {};
+  const isLocked = sub.status === 'submitted' || sub.status === 'reviewed';
+  const isReviewed = sub.status === 'reviewed';
+
+  const detailHints = {
+    stamp: '請列出 KI 項目名稱',
+    innovation: '請列出 Innovation Project / Proposal 名稱',
+    ipp: '請列出 IPP 名稱(對應數量)',
+    conference: '會議 / 論文名稱',
+    award: '獎項名稱、頒發單位',
+    nfi: '請列出 NFI 項目',
+    travel: '出差地點、起迄日期',
+    lecturer: '課程名稱、授課場次',
+    linc: '參賽作品名稱'
+  };
+  const certHints = {
+    pmp: '證照編號、取得日期',
+    toeic_green: '分數 / 取得日期',
+    toeic_blue: '分數 / 取得日期',
+    toeic_gold: '分數 / 取得日期',
+    jlpt_n2: '取得日期',
+    jlpt_n1: '取得日期'
+  };
+
+  // 計算原始申請總分(員工角度看)
+  let appliedTotal = 0;
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    const sel = data.items?.[item.id];
+    if (item.type === 'single') {
+      if (!sel || sel === 'none') return;
+      const opt = item.options.find(o => o.id === sel);
+      if (opt) appliedTotal += opt.score;
+    } else {
+      const arr = Array.isArray(sel) ? sel : [];
+      arr.forEach(optId => {
+        const opt = item.options.find(o => o.id === optId);
+        if (opt) appliedTotal += opt.score;
+      });
+    }
+  });
+  appliedTotal += Number(data.others) || 0;
+
+  // review 後實際加分
+  let actualBonus = 0;
+  if (isReviewed) {
+    actualBonus = getEmployeeBonus(empId).score;
+  }
+
+  return `
+    <div class="employee-form-panel">
+      <div class="employee-form-header">
+        <div>
+          <h2>${escapeHtml(emp.name)} <span class="band-tag">Band ${emp.currentBand} → ${emp.currentBand + 1}</span> <span class="tech-tag-large">${escapeHtml(getEmployeeTech(emp))}</span></h2>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-muted);letter-spacing:0.06em;margin-top:6px;">
+            ${escapeHtml(emp.enName || '')} · ${escapeHtml(displayDept(emp.dept))} · ${escapeHtml(emp.id)}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          ${sub.status === 'draft' ? '<span class="form-status form-status-draft">草稿(未提交)</span>' : ''}
+          ${sub.status === 'submitted' ? '<span class="form-status form-status-submitted">已提交 · 待審核</span>' : ''}
+          ${sub.status === 'reviewed' ? '<span class="form-status form-status-reviewed">已審核完成</span>' : ''}
+          ${sub.submittedAt ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-muted);margin-top:6px;">提交於 ${new Date(sub.submittedAt).toLocaleString('zh-TW')}</div>` : ''}
+        </div>
+      </div>
+
+      <div style="background:var(--bg);padding:14px 18px;margin-bottom:24px;border-left:3px solid ${isReviewed ? 'var(--green)' : (isLocked ? 'var(--gold)' : 'var(--accent)')};">
+        ${sub.status === 'draft' ? `
+          <div style="font-size:13px;line-height:1.7;color:var(--ink-soft);">
+            請填寫您於本 Band 期間達成的 Extra Contribution 項目,並附上具體說明作為佐證。<br>
+            <span style="color:var(--ink-muted);font-size:12px;">填完後可隨時「儲存草稿」(後續可繼續修改);確認無誤後按「提交」送交審核。一旦提交將無法自行修改,需請管理者退回。</span>
+          </div>
+        ` : ''}
+        ${sub.status === 'submitted' ? `
+          <div style="font-size:13px;line-height:1.7;color:var(--ink-soft);">
+            您的申請已提交,目前等待管理者審核。<br>
+            <span style="color:var(--ink-muted);font-size:12px;">如需修改,請聯繫管理者退回您的申請。</span>
+          </div>
+        ` : ''}
+        ${sub.status === 'reviewed' ? `
+          <div style="font-size:13px;line-height:1.7;color:var(--ink-soft);">
+            您的申請已完成審核。下方顯示每項申請的審核結果。<br>
+            <span style="color:var(--ink-muted);font-size:12px;">實際加分 = 被「接受」或「調整」的項目分數總和。</span>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="form-summary">
+        <div class="form-summary-item">
+          <div class="label">申請總分</div>
+          <div class="value">${appliedTotal.toFixed(1)}</div>
+        </div>
+        ${isReviewed ? `
+          <div class="form-summary-item">
+            <div class="label">審核後實際加分</div>
+            <div class="value" style="color:var(--green);">+${actualBonus}</div>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="form-items">
+        ${EXTRA_CONTRIBUTION_ITEMS.map(item => {
+          const sel = data.items?.[item.id];
+          if (item.type === 'single') {
+            const detailVal = data.itemDetails?.[item.id] || '';
+            const isActive = sel && sel !== 'none';
+            const review = sub.reviewedItems?.[item.id];
+            return `
+              <div class="form-item-row ${isReviewed ? renderItemReviewClass(review) : ''}">
+                <div class="form-item-name">
+                  ${escapeHtml(item.name)}
+                  ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
+                  ${isReviewed ? renderItemReviewBadge(review, item, sel) : ''}
+                </div>
+                <div class="form-item-control">
+                  <select class="emp-select" data-item="${item.id}" ${isLocked ? 'disabled' : ''}>
+                    ${item.options.map(o => `
+                      <option value="${o.id}" ${sel === o.id || (!sel && o.id === 'none') ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
+                    `).join('')}
+                  </select>
+                  <input type="text" class="emp-detail" data-detail-item="${item.id}" value="${escapeHtml(detailVal)}" placeholder="${escapeHtml(detailHints[item.id] || '具體項目 / 紀錄')}" ${(!isActive || isLocked) ? 'disabled' : ''}>
+                </div>
+              </div>
+            `;
+          } else {
+            const arr = Array.isArray(sel) ? sel : [];
+            return `
+              <div class="form-item-row">
+                <div class="form-item-name">
+                  ${escapeHtml(item.name)}
+                  ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
+                </div>
+                <div class="form-item-control">
+                  <div class="bonus-multi-list">
+                    ${item.options.map(o => {
+                      const checked = arr.includes(o.id);
+                      const certDetailVal = data.certDetails?.[o.id] || '';
+                      const certReview = sub.reviewedCertItems?.[o.id];
+                      return `
+                        <div class="bonus-multi-row ${isReviewed && checked ? renderItemReviewClass(certReview) : ''}">
+                          <label class="bonus-check">
+                            <input type="checkbox" class="emp-multi" data-item="${item.id}" value="${o.id}" ${checked ? 'checked' : ''} ${isLocked ? 'disabled' : ''}>
+                            <span>${escapeHtml(o.label)} <span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;">+${o.score}</span></span>
+                            ${isReviewed && checked ? renderItemReviewBadge(certReview, null, null) : ''}
+                          </label>
+                          <input type="text" class="emp-cert-detail" data-cert-opt="${o.id}" value="${escapeHtml(certDetailVal)}" placeholder="${escapeHtml(certHints[o.id] || '證照詳細資料')}" ${(!checked || isLocked) ? 'disabled' : ''}>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                </div>
+              </div>
+            `;
+          }
+        }).join('')}
+
+        <div class="form-item-row" style="background:rgba(176,141,58,0.04);">
+          <div class="form-item-name">
+            Others
+            <div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">列舉未列在七大項的貢獻,需 Promotion Committee Review 後核定加分</div>
+            ${isReviewed ? renderItemReviewBadge(sub.reviewedItems?.others, null, null) : ''}
+          </div>
+          <div class="form-item-control">
+            <div style="display:flex;gap:10px;align-items:center;">
+              <input type="number" step="0.1" min="0" max="20" value="${data.others || 0}" data-others="score" class="emp-others bonus-input" style="width:80px;text-align:center;" ${isLocked ? 'disabled' : ''}>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);">分(建議)</span>
+              <input type="text" value="${escapeHtml(data.othersNote || '')}" placeholder="說明(例: 特殊專案貢獻)" data-others="note" class="emp-others bonus-input" style="flex:1;font-size:13px;" ${isLocked ? 'disabled' : ''}>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      ${!isLocked ? `
+        <div class="form-actions">
+          <button class="btn secondary" data-action="emp-save-draft">儲存草稿</button>
+          <button class="btn" data-action="emp-submit">提交審核</button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function renderItemReviewClass(review) {
+  if (review === 'accepted') return 'review-accepted';
+  if (review === 'rejected') return 'review-rejected';
+  if (review && typeof review === 'object' && review.adjustedTo) return 'review-adjusted';
+  return 'review-pending';
+}
+
+function renderItemReviewBadge(review, item, originalSel) {
+  if (review === 'accepted') return '<span class="review-badge review-badge-accepted">✓ 已接受</span>';
+  if (review === 'rejected') return '<span class="review-badge review-badge-rejected">✗ 已拒絕</span>';
+  if (review && typeof review === 'object' && review.adjustedTo && item) {
+    const adjOpt = item.options.find(o => o.id === review.adjustedTo);
+    return `<span class="review-badge review-badge-adjusted">↔ 已調整為 ${adjOpt ? escapeHtml(adjOpt.label) : ''}</span>`;
+  }
+  return '<span class="review-badge review-badge-pending">⋯ 待審</span>';
+}
+
+function renderManagerSetPassword() {
+  const mgr = state.managers.find(m => m.id === view.payload.managerId);
+  return `
+    <div class="role-picker">
+      <h2>首次登入 · 設定密碼</h2>
+      <div class="sub">${escapeHtml(mgr.name)}</div>
+      <div style="font-size:13px;color:var(--ink-soft);line-height:1.7;margin-bottom:24px;text-align:center;">
+        為了保護您的評分隱私,系統需要您設定一組登入密碼。<br>
+        <span style="color:var(--ink-muted);font-size:12px;">這組密碼僅供您下次登入使用,管理者可協助重置但無法看到。</span>
+      </div>
+      <div class="field">
+        <label>新密碼(至少 4 字元)</label>
+        <input type="password" id="mgrNewPass" autofocus>
+      </div>
+      <div class="field">
+        <label>確認密碼</label>
+        <input type="password" id="mgrNewPass2">
+        <div id="mgrSetErr" class="error-msg hidden"></div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+        <button class="btn secondary" data-action="back-to-picker">返回</button>
+        <button class="btn" data-action="manager-set-password-submit">設定並登入</button>
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// VIEW: MANAGER LOGIN PASSWORD
+// =========================================================================
+function renderManagerLoginPassword() {
+  const mgr = state.managers.find(m => m.id === view.payload.managerId);
+  return `
+    <div class="role-picker">
+      <h2>主管登入</h2>
+      <div class="sub">${escapeHtml(mgr.name)}</div>
+      <div class="field">
+        <label>密碼</label>
+        <input type="password" id="mgrLoginPass" autofocus placeholder="請輸入您的密碼">
+        <div id="mgrLoginErr" class="error-msg hidden">密碼錯誤</div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+        <button class="btn secondary" data-action="back-to-picker">返回</button>
+        <button class="btn" data-action="manager-login-submit">登入</button>
+      </div>
+      <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--ink-muted);text-align:center;">
+        忘記密碼?請聯繫管理者重置(後台主管管理頁可重置密碼)
+      </div>
+    </div>
+  `;
+}
+
+function renderManagerScoring() {
+  const mgrId = view.payload.managerId;
+  const selectedEmpId = view.payload.employeeId || null;
+
+  if (!selectedEmpId) {
+    const mgr = state.managers.find(m => m.id === mgrId);
+    const eligible = eligibleEmployees(mgr);
+    const excludedCount = state.employees.length - eligible.length;
+
+    // group employees by current band (descending)
+    const groups = {};
+    eligible.forEach(e => {
+      const band = e.currentBand ?? '未設定';
+      if (!groups[band]) groups[band] = [];
+      groups[band].push(e);
+    });
+    const sortedBands = Object.keys(groups).sort((a, b) => {
+      if (a === '未設定') return 1;
+      if (b === '未設定') return -1;
+      return Number(b) - Number(a);
+    });
+
+    return `
+      <div class="section-header">
+        <h3>選擇要評核的部屬</h3>
+        <div class="meta">
+          ${eligible.length} 位可評核 · 同職等者一同評比 · 您的評分僅您與管理者可見
+          ${excludedCount > 0 ? `<br><span style="color:var(--accent);">⚠ 已自動排除 ${excludedCount} 位非可評範圍內的員工</span>` : ''}
+        </div>
+      </div>
+      ${eligible.length === 0 ? '<div class="empty">沒有可評核的員工</div>' : sortedBands.map(band => {
+        const emps = groups[band];
+        const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+        const scoredCount = emps.filter(e => computeManagerTotal(e.id, mgrId) !== null).length;
+        return `
+          <div class="band-group">
+            <div class="band-header">
+              <div class="band-title">
+                <span class="band-from">Band ${band}</span>
+                <span class="band-arrow">→</span>
+                <span class="band-to">Band ${targetBand}</span>
+              </div>
+              <div class="band-meta">${emps.length} 位 · 已評 ${scoredCount} / ${emps.length}</div>
+            </div>
+            <div class="employee-grid">
+              ${emps.map(e => {
+                const total = computeManagerTotal(e.id, mgrId);
+                const scored = total !== null;
+                return `
+                  <div class="employee-card" data-action="select-employee" data-id="${e.id}">
+                    ${scored ? `<div class="quickscore">${fmt(total/state.dimensions.length, 1)}</div>` : ''}
+                    <div class="name">${escapeHtml(e.name)} <span class="tech-tag">${escapeHtml(getEmployeeTech(e))}</span></div>
+                    <div class="en-name">${escapeHtml(e.enName || '')}</div>
+                    <div class="dept">${escapeHtml(displayDept(e.dept))}</div>
+                    <div class="emp-meta">${escapeHtml(e.id)}</div>
+                    <div class="status ${scored ? 'scored' : 'pending'}">${scored ? '已評分 · 可修改' : '尚未評分'}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('')}
+
+      <div class="admin-section" style="margin-top:32px;">
+        <h3>修改密碼</h3>
+        <div style="font-size:13px;color:var(--ink-soft);margin-bottom:14px;">如需更換登入密碼,可在此修改。新密碼至少 4 字元。</div>
+        <div class="field">
+          <label>新密碼</label>
+          <input type="password" id="mgrChangePass1" placeholder="輸入新密碼">
+        </div>
+        <div class="field">
+          <label>確認新密碼</label>
+          <input type="password" id="mgrChangePass2" placeholder="再次輸入">
+        </div>
+        <button class="btn" data-action="manager-change-password">儲存新密碼</button>
+      </div>
+    `;
+  }
+
+  // scoring form
+  const emp = state.employees.find(e => e.id === selectedEmpId);
+  const existing = getManagerScoreForEmployee(selectedEmpId, mgrId);
+
+  return `
+    <div style="margin-bottom:18px;">
+      <button class="btn secondary small" data-action="back-to-emp-list">← 回到員工列表</button>
+    </div>
+    <div class="scoring-panel">
+      <div class="scoring-header">
+        <div class="who">
+          <h2>${escapeHtml(emp.name)}<span class="band-tag">Band ${emp.currentBand} → ${emp.currentBand + 1}</span><span class="tech-tag-large">${escapeHtml(getEmployeeTech(emp))}</span></h2>
+          <div class="dept">${escapeHtml(emp.enName || '')} · ${escapeHtml(displayDept(emp.dept))} · ${escapeHtml(emp.id)}</div>
+        </div>
+        <div class="summary">
+          <span class="label">本次總分</span>
+          <span class="value" id="liveTotal">—<span class="max"> / ${(state.dimensions.length * 5).toFixed(1)}</span></span>
+        </div>
+      </div>
+
+      ${state.dimensions.length === 0 ? `
+        <div class="empty">尚未設定評分維度,請通知管理者於後台新增。</div>
+      ` : state.dimensions.map(d => {
+        const val = typeof existing[d.id] === 'number' ? existing[d.id] : 3.0;
+        return `
+          <div class="dimension">
+            <div class="info">
+              <div class="name">${escapeHtml(d.name)}</div>
+              <div class="desc">${escapeHtml(d.desc || '')}</div>
+            </div>
+            <div class="score-control">
+              <input type="range" min="0.1" max="5" step="0.1" value="${val}" data-dim="${d.id}" class="score-slider">
+              <input type="number" min="0.1" max="5" step="0.1" value="${val.toFixed(1)}" data-dim="${d.id}" class="score-number">
+              <span class="of">/ 5.0</span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+
+      <div class="scoring-footer">
+        <div style="font-size:12px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.1em;">
+          ※ 本評分僅您本人與管理者可見
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn secondary" data-action="back-to-emp-list">取消</button>
+          <button class="btn" data-action="save-scores">儲存評分</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// VIEW: ADMIN LOGIN
+// =========================================================================
+function renderAdminLogin() {
+  return `
+    <div class="role-picker">
+      <h2>管理者登入</h2>
+      <div class="sub">Administrator Access</div>
+      <div class="field">
+        <label>密碼</label>
+        <input type="password" id="adminPass" placeholder="請輸入管理者密碼" autofocus>
+        <div id="loginErr" class="error-msg hidden">密碼錯誤</div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+        <button class="btn secondary" data-action="back-to-picker">返回</button>
+        <button class="btn" data-action="admin-submit">登入</button>
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// VIEW: ADMIN PANEL
+// =========================================================================
+const ADMIN_TABS = [
+  { id: 'stats', label: '評分統計' },
+  { id: 'bonus', label: 'Extra Contribution' },
+  { id: 'review', label: '自填審核' },
+  { id: 'employees', label: '員工管理' },
+  { id: 'managers', label: '主管管理' },
+  { id: 'dimensions', label: '評分維度' },
+  { id: 'settings', label: '系統設定' }
+];
+
+function renderAdmin() {
+  const tab = view.payload?.tab || 'stats';
+  return `
+    <div class="tabs">
+      ${ADMIN_TABS.map(t => `
+        <button class="tab ${t.id === tab ? 'active' : ''}" data-action="admin-tab" data-tab="${t.id}">${t.label}</button>
+      `).join('')}
+    </div>
+    ${renderAdminTab(tab)}
+  `;
+}
+
+function renderAdminTab(tab) {
+  if (tab === 'stats') return renderStatsTab();
+  if (tab === 'bonus') return renderBonusTab();
+  if (tab === 'review') return renderReviewTab();
+  if (tab === 'employees') return renderEmployeesTab();
+  if (tab === 'managers') return renderManagersTab();
+  if (tab === 'dimensions') return renderDimensionsTab();
+  if (tab === 'settings') return renderSettingsTab();
+}
+
+function renderStatsTab() {
+  const totalEmps = state.employees.length;
+  const totalMgrs = state.managers.length;
+  // mode: 'raw' | 'trimmed' | 'bonus'
+  const mode = view.payload?.statsMode || 'raw';
+  const trimMode = mode === 'trimmed';  // 給展開明細用
+
+  // 應評分數 = 每位員工 × 該員工的可評主管數
+  let expectedReviews = 0;
+  state.employees.forEach(e => {
+    expectedReviews += eligibleManagers(e).length;
+  });
+  let completedReviews = 0;
+  state.employees.forEach(e => {
+    eligibleManagers(e).forEach(m => {
+      if (computeManagerTotal(e.id, m.id) !== null) completedReviews++;
+    });
+  });
+  const completion = expectedReviews > 0 ? (completedReviews / expectedReviews * 100) : 0;
+
+  // ranking - 根據模式選用不同函式
+  const rows = state.employees.map(e => {
+    const raw = computeEmployeeAverage(e.id);
+    const trimmed = computeEmployeeAverageTrimmed(e.id);
+    const bonus = getEmployeeBonus(e.id).score || 0;
+    const eligibleMgrCount = eligibleManagers(e).length;
+
+    // 依模式選用對應的 base 平均(bonus 模式以 trimmed 為基底再加 bonus)
+    let avg, count, trimmedAny;
+    if (mode === 'raw') {
+      avg = raw.avg; count = raw.count; trimmedAny = false;
+    } else if (mode === 'trimmed') {
+      avg = trimmed.avg; count = trimmed.count; trimmedAny = trimmed.trimmedAny;
+    } else {  // bonus
+      // 加分後 = 調整後平均 + bonus(若沒觸發排除則用原始平均)
+      const base = trimmed.avg;
+      avg = base !== null ? base + bonus : null;
+      count = trimmed.count; trimmedAny = trimmed.trimmedAny;
+    }
+    return { emp: e, avg, count, trimmedAny, bonus, rawAvg: raw.avg, trimmedAvg: trimmed.avg, eligibleMgrCount };
+  }).sort((a, b) => {
+    if (a.avg === null && b.avg === null) return 0;
+    if (a.avg === null) return 1;
+    if (b.avg === null) return -1;
+    return b.avg - a.avg;
+  });
+
+  // 升遷資格統計(用目前模式判斷)
+  let qualifiedCount = 0;
+  let disqualifiedCount = 0;
+  let unscoredCount = 0;
+  rows.forEach(r => {
+    const dimAvg = r.avg !== null && state.dimensions.length > 0 ? r.avg / state.dimensions.length : null;
+    if (dimAvg === null) unscoredCount++;
+    else if (dimAvg < 4) disqualifiedCount++;
+    else qualifiedCount++;
+  });
+
+  return `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">員工人數</div>
+        <div class="value">${totalEmps}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">完成評分</div>
+        <div class="value accent">${completedReviews}<span style="font-size:18px;color:var(--ink-muted);"> / ${expectedReviews}</span></div>
+        <div class="delta">完成率 ${completion.toFixed(1)}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">符合升遷資格</div>
+        <div class="value" style="color:var(--green);">${qualifiedCount}<span style="font-size:18px;color:var(--ink-muted);"> / ${totalEmps}</span></div>
+        <div class="delta">單項平均 ≥ 4.0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">不符資格</div>
+        <div class="value" style="color:var(--accent);">${disqualifiedCount}</div>
+        <div class="delta">${unscoredCount > 0 ? `(另有 ${unscoredCount} 位尚未完成評分)` : '單項平均 < 4.0'}</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <h3>員工評分排名</h3>
+      <div class="meta">同職等分組排名 · 可展開查看各主管詳細評分</div>
+    </div>
+
+    <div class="mode-switcher">
+      <div class="mode-switcher-label">排名模式</div>
+      <div class="mode-switcher-tabs">
+        <button class="mode-tab ${mode === 'raw' ? 'active' : ''}" data-action="set-stats-mode" data-mode="raw">原始平均</button>
+        <button class="mode-tab ${mode === 'trimmed' ? 'active' : ''}" data-action="set-stats-mode" data-mode="trimmed">排除最高最低</button>
+        <button class="mode-tab ${mode === 'bonus' ? 'active' : ''}" data-action="set-stats-mode" data-mode="bonus">加分後</button>
+      </div>
+      <div class="mode-switcher-desc">
+        ${mode === 'raw' ? '※ 各主管的所有評分皆計入平均,未做任何排除' : ''}
+        ${mode === 'trimmed' ? '※ 對每個維度,當該維度評分人數 ≥ 5 時,自動去除最高與最低分後再平均' : ''}
+        ${mode === 'bonus' ? '※ 以「排除最高最低」為基底,再加上 Extra Contribution 加分(管理者於後台設定)' : ''}
+      </div>
+    </div>
+
+    ${rows.length === 0 ? '<div class="empty">尚無員工資料</div>' : (() => {
+      // group by current band
+      const bandGroups = {};
+      rows.forEach(r => {
+        const b = r.emp.currentBand ?? '未設定';
+        if (!bandGroups[b]) bandGroups[b] = [];
+        bandGroups[b].push(r);
+      });
+      const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+        if (a === '未設定') return 1;
+        if (b === '未設定') return -1;
+        return Number(b) - Number(a);
+      });
+      return sortedBands.map(band => {
+        const groupRows = bandGroups[band];
+        const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+        return `
+          <div class="band-group">
+            <div class="band-header">
+              <div class="band-title">
+                <span class="band-from">Band ${band}</span>
+                <span class="band-arrow">→</span>
+                <span class="band-to">Band ${targetBand}</span>
+              </div>
+              <div class="band-meta">${groupRows.length} 位候選人</div>
+            </div>
+            <table class="results">
+              <thead>
+                <tr>
+                  <th style="width:40px;">名次</th>
+                  <th>員工</th>
+                  <th>英文名</th>
+                  <th style="width:70px;">技術</th>
+                  <th>單位</th>
+                  <th class="num">${mode === 'bonus' ? '加分後總分' : '平均總分'}</th>
+                  <th class="num">平均單項</th>
+                  <th class="num" style="width:60px;">加分</th>
+                  <th class="num">評分人數</th>
+                  <th style="width:90px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${groupRows.map((r, i) => {
+                  const detailId = 'detail_' + r.emp.id;
+                  const dimAvg = r.avg !== null && state.dimensions.length > 0 ? (r.avg - r.bonus) / state.dimensions.length : null;
+                  // 資格判斷一律用「不含加分的單項平均」
+                  const baseAvgForJudge = mode === 'bonus' ? r.trimmedAvg : (mode === 'trimmed' ? r.trimmedAvg : r.rawAvg);
+                  const dimAvgForJudge = baseAvgForJudge !== null && state.dimensions.length > 0 ? baseAvgForJudge / state.dimensions.length : null;
+                  const disqualified = dimAvgForJudge !== null && dimAvgForJudge < 4;
+                  return `
+                    <tr class="${disqualified ? 'disqualified-row' : ''}">
+                      <td class="mono" style="color:var(--ink-muted);">${(i+1).toString().padStart(2,'0')}</td>
+                      <td class="name">${escapeHtml(r.emp.name)}${disqualified ? '<span class="disqualified-tag">不符資格</span>' : ''}</td>
+                      <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);">${escapeHtml(r.emp.enName || '')}</td>
+                      <td><span class="tech-tag">${escapeHtml(getEmployeeTech(r.emp))}</span></td>
+                      <td style="color:var(--ink-muted);">${escapeHtml(displayDept(r.emp.dept))}</td>
+                      <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && mode !== 'raw' ? '<span class="trim-tag">已排除</span>' : ''}${mode === 'bonus' && r.bonus > 0 ? '<span class="bonus-tag">+' + r.bonus + '</span>' : ''}</td>
+                      <td class="num ${disqualified ? 'disqualified-num' : ''}">${fmt(dimAvgForJudge, 2)}</td>
+                      <td class="num" style="color:${r.bonus > 0 ? 'var(--gold)' : 'var(--ink-muted)'};font-weight:${r.bonus > 0 ? '600' : '400'};">${r.bonus > 0 ? '+' + r.bonus : '—'}</td>
+                      <td class="num">${r.count} / ${r.eligibleMgrCount}</td>
+                      <td><button class="detail-toggle" data-action="toggle-detail" data-target="${detailId}">展開</button></td>
+                    </tr>
+                    <tr class="detail-row hidden" id="${detailId}">
+                      <td colspan="10"><div class="detail-content">${renderEmpDetail(r.emp)}</div></td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }).join('');
+    })()}
+
+    <div style="margin-top:24px;display:flex;gap:10px;">
+      <button class="btn secondary" data-action="export-csv">匯出 CSV</button>
+      <button class="btn secondary" data-action="export-detail-csv">匯出明細 CSV</button>
+    </div>
+  `;
+}
+
+function renderEmpDetail(emp) {
+  const trimMode = view.payload?.trimMode || false;
+
+  const totalsByMgr = state.managers.map(m => {
+    const scores = getManagerScoreForEmployee(emp.id, m.id);
+    const total = computeManagerTotal(emp.id, m.id);
+    const cannotReview = !canManagerReview(m, emp);
+    return { mgr: m, scores, total, cannotReview };
+  });
+
+  // 取得每維度的詳細統計(含排除資訊)
+  const dimStats = computeDimensionStats(emp.id);
+
+  // 哪些主管在哪些維度被排除(依模式決定是否顯示排除)
+  const isExcluded = (mgrId, dimId) => {
+    if (!trimMode) return false;
+    return dimStats[dimId]?.excludedMgrs?.includes(mgrId);
+  };
+
+  if (state.dimensions.length === 0) return '<div class="empty" style="padding:20px;">尚未設定評分維度</div>';
+
+  // 對每個有效主管計算「按目前模式」的總分
+  const computeMgrDisplayTotal = (t) => {
+    if (t.cannotReview || t.total === null) return null;
+    if (!trimMode) return t.total;
+    // trim mode: 只計入未被排除的維度
+    let sum = 0, count = 0;
+    state.dimensions.forEach(d => {
+      if (isExcluded(t.mgr.id, d.id)) return;
+      if (typeof t.scores[d.id] === 'number') { sum += t.scores[d.id]; count++; }
+    });
+    return count > 0 ? sum : null;  // 在 trim 模式下,若該主管所有維度都被排除則為 null
+  };
+
+  // 加總所有調整後維度平均 = 員工總分
+  const summaryTotal = trimMode
+    ? state.dimensions.reduce((acc, d) => acc + (dimStats[d.id]?.trimmedAvg || 0), 0)
+    : state.dimensions.reduce((acc, d) => acc + (dimStats[d.id]?.rawAvg || 0), 0);
+
+  // group dimensions
+  const groups = {};
+  state.dimensions.forEach(d => {
+    const g = d.group || '其他';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(d);
+  });
+  const groupNames = Object.keys(groups);
+
+  return `
+    <h4>${escapeHtml(emp.name)} · 各主管評分明細 ${trimMode ? '<span class="trim-tag">排除最高最低模式</span>' : ''}</h4>
+    <table class="detail-table">
+      <thead>
+        <tr>
+          <th rowspan="2" style="vertical-align:bottom;">主管</th>
+          ${groupNames.map(g => `<th colspan="${groups[g].length}" style="text-align:center;border-bottom:1px solid var(--line-soft);">${escapeHtml(g)}</th>`).join('')}
+          <th rowspan="2" class="num" style="vertical-align:bottom;">總分</th>
+        </tr>
+        <tr>
+          ${groupNames.map(g => groups[g].map(d => `<th class="num" style="font-size:9px;">${escapeHtml(d.name)}</th>`).join('')).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${totalsByMgr.map(t => {
+          if (t.cannotReview) {
+            return `
+              <tr style="opacity:0.45;">
+                <td>${escapeHtml(t.mgr.name)} <span style="font-family:'JetBrains Mono',monospace;font-size:9px;background:var(--ink-muted);color:var(--bg-paper);padding:1px 6px;letter-spacing:0.1em;">無評分權</span></td>
+                ${state.dimensions.map(() => `<td class="num">—</td>`).join('')}
+                <td class="num">—</td>
+              </tr>
+            `;
+          }
+          const displayTotal = computeMgrDisplayTotal(t);
+          return `
+            <tr>
+              <td>${escapeHtml(t.mgr.name)}</td>
+              ${state.dimensions.map(d => {
+                const v = t.scores[d.id];
+                if (typeof v !== 'number') return `<td class="num">—</td>`;
+                if (isExcluded(t.mgr.id, d.id)) {
+                  return `<td class="num" style="color:var(--ink-muted);text-decoration:line-through;background:rgba(176,141,58,0.08);" title="本維度最高/最低分,已排除">${fmt(v, 1)}</td>`;
+                }
+                return `<td class="num">${fmt(v, 1)}</td>`;
+              }).join('')}
+              <td class="num">${fmt(displayTotal, 2)}</td>
+            </tr>
+          `;
+        }).join('')}
+        <tr class="summary-row">
+          <td>${trimMode ? '調整後平均' : '原始平均'}</td>
+          ${state.dimensions.map(d => {
+            const stat = dimStats[d.id];
+            if (!stat || stat.rawAvg === null) return `<td class="num">—</td>`;
+            return `<td class="num">${fmt(trimMode ? stat.trimmedAvg : stat.rawAvg, 2)}</td>`;
+          }).join('')}
+          <td class="num">${fmt(summaryTotal, 2)}</td>
+        </tr>
+        ${trimMode ? `
+          <tr style="opacity:0.6;">
+            <td style="font-size:11px;color:var(--ink-muted);">原始平均(對照)</td>
+            ${state.dimensions.map(d => {
+              const stat = dimStats[d.id];
+              if (!stat || stat.rawAvg === null) return `<td class="num" style="font-size:11px;">—</td>`;
+              return `<td class="num" style="font-size:11px;color:var(--ink-muted);">${fmt(stat.rawAvg, 2)}</td>`;
+            }).join('')}
+            <td class="num" style="font-size:11px;color:var(--ink-muted);">${fmt(state.dimensions.reduce((acc, d) => acc + (dimStats[d.id]?.rawAvg || 0), 0), 2)}</td>
+          </tr>
+        ` : ''}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderBonusTab() {
+  // group by band
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(b) - Number(a);
+  });
+
+  const expandedEmpId = view.payload?.expandedBonus || null;
+
+  return `
+    <div class="admin-section">
+      <h3>員工自填連結</h3>
+      <div style="font-size:13px;color:var(--ink-soft);line-height:1.7;margin-bottom:14px;">
+        將下方專屬連結傳給每位候選人,他們點開即可填寫自己的 Extra Contribution 申請。<br>
+        <span style="color:var(--ink-muted);font-size:12px;">系統會記住每人填寫狀態,提交後可在審核頁面 review。</span>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+        <button class="btn" data-action="copy-all-links">複製全部 ${state.employees.length} 個連結</button>
+        ${sortedBands.map(band => `
+          <button class="btn secondary" data-action="copy-band-links" data-band="${band}">複製 Band ${band} → ${Number(band)+1}(${bandGroups[band].length} 人)</button>
+        `).join('')}
+      </div>
+
+      ${sortedBands.map(band => {
+        const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+        return `
+          <div style="margin-top:18px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line-soft);">
+              Band ${band} → Band ${targetBand}
+            </div>
+            ${bandGroups[band].map(e => {
+              const sub = getEmployeeSubmission(e.id);
+              const link = buildEmployeeLink(e.id);
+              return `
+                <div class="link-row">
+                  <div class="link-info">
+                    <div style="font-family:'Fraunces',serif;font-size:15px;font-weight:500;">
+                      ${escapeHtml(e.name)}
+                      <span style="color:var(--ink-muted);font-size:12px;font-family:'JetBrains Mono',monospace;margin-left:6px;">${escapeHtml(e.enName || '')}</span>
+                      ${renderSubmissionStatusTag(sub.status)}
+                    </div>
+                    <div class="link-url">${escapeHtml(link)}</div>
+                  </div>
+                  <button class="btn small secondary" data-action="copy-emp-link" data-id="${e.id}">複製連結</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="admin-section">
+      <h3>Extra Contribution 加分(管理員直接填)</h3>
+      <div style="font-size:13px;color:var(--ink-soft);line-height:1.7;margin-bottom:18px;">
+        若員工沒透過自填連結提交,管理員可在此直接幫員工填寫加分項目。<br>
+        <span style="color:var(--ink-muted);font-size:12px;">※ 主管端看不到加分,只在後台「評分統計 → 加分後」模式中影響排名。</span>
+      </div>
+      ${sortedBands.map(band => {
+        const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+        return `
+          <div style="margin-top:24px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--line-soft);">
+              Band ${band} → Band ${targetBand} · ${bandGroups[band].length} 位
+            </div>
+            ${bandGroups[band].map(e => {
+              const bonus = getEmployeeBonus(e.id);
+              const data = getEmployeeBonusData(e.id);
+              const isExpanded = expandedEmpId === e.id;
+              return `
+                <div class="bonus-emp-card ${isExpanded ? 'expanded' : ''}">
+                  <div class="bonus-emp-header" data-action="toggle-bonus-emp" data-id="${e.id}">
+                    <div>
+                      <span style="font-family:'Fraunces',serif;font-size:16px;font-weight:500;">${escapeHtml(e.name)}</span>
+                      <span style="color:var(--ink-soft);font-size:12px;font-family:'JetBrains Mono',monospace;margin-left:8px;">${escapeHtml(e.enName || '')}</span>
+                      <span class="tech-tag" style="margin-left:8px;">${escapeHtml(getEmployeeTech(e))}</span>
+                      <span style="color:var(--ink-muted);font-size:12px;margin-left:8px;">${escapeHtml(displayDept(e.dept))}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:14px;">
+                      <span style="font-family:'Fraunces',serif;font-size:22px;font-weight:600;color:${bonus.score > 0 ? 'var(--gold)' : 'var(--ink-muted)'};">
+                        ${bonus.score > 0 ? '+' + bonus.score : '—'}
+                      </span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-muted);letter-spacing:0.1em;">${isExpanded ? '收合 ▲' : '展開 ▼'}</span>
+                    </div>
+                  </div>
+                  ${isExpanded ? `
+                    <div class="bonus-emp-body">
+                      ${EXTRA_CONTRIBUTION_ITEMS.map(item => {
+                        const sel = data.items?.[item.id];
+                        // single/multi 都需要這個提示文字
+                        const detailHints = {
+                          stamp: '請列出 KI 項目名稱',
+                          innovation: '請列出 Innovation Project / Proposal 名稱',
+                          ipp: '請列出 IPP 名稱(對應數量)',
+                          conference: '會議 / 論文名稱',
+                          award: '獎項名稱、頒發單位',
+                          nfi: '請列出 NFI 項目',
+                          travel: '出差地點、起迄日期',
+                          lecturer: '課程名稱、授課場次',
+                          linc: '參賽作品名稱'
+                        };
+                        const certHints = {
+                          pmp: '證照編號、取得日期',
+                          toeic_green: '分數 / 取得日期',
+                          toeic_blue: '分數 / 取得日期',
+                          toeic_gold: '分數 / 取得日期',
+                          jlpt_n2: '取得日期',
+                          jlpt_n1: '取得日期'
+                        };
+                        if (item.type === 'single') {
+                          const detailVal = data.itemDetails?.[item.id] || '';
+                          const isActive = sel && sel !== 'none';
+                          return `
+                            <div class="bonus-item-row">
+                              <div class="bonus-item-name">
+                                ${escapeHtml(item.name)}
+                                ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
+                              </div>
+                              <div class="bonus-item-control">
+                                <select class="bonus-select" data-bonus-emp="${e.id}" data-item="${item.id}">
+                                  ${item.options.map(o => `
+                                    <option value="${o.id}" ${sel === o.id || (!sel && o.id === 'none') ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
+                                  `).join('')}
+                                </select>
+                                <input type="text" class="bonus-detail" data-bonus-emp="${e.id}" data-detail-item="${item.id}" value="${escapeHtml(detailVal)}" placeholder="${escapeHtml(detailHints[item.id] || '具體項目 / 紀錄')}" ${!isActive ? 'disabled' : ''}>
+                              </div>
+                            </div>
+                          `;
+                        } else {
+                          // multi
+                          const arr = Array.isArray(sel) ? sel : [];
+                          return `
+                            <div class="bonus-item-row">
+                              <div class="bonus-item-name">
+                                ${escapeHtml(item.name)}
+                                ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
+                              </div>
+                              <div class="bonus-item-control">
+                                <div class="bonus-multi-list">
+                                  ${item.options.map(o => {
+                                    const checked = arr.includes(o.id);
+                                    const certDetailVal = data.certDetails?.[o.id] || '';
+                                    return `
+                                      <div class="bonus-multi-row">
+                                        <label class="bonus-check">
+                                          <input type="checkbox" class="bonus-multi" data-bonus-emp="${e.id}" data-item="${item.id}" value="${o.id}" ${checked ? 'checked' : ''}>
+                                          <span>${escapeHtml(o.label)} <span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;">+${o.score}</span></span>
+                                        </label>
+                                        <input type="text" class="bonus-cert-detail" data-bonus-emp="${e.id}" data-cert-opt="${o.id}" value="${escapeHtml(certDetailVal)}" placeholder="${escapeHtml(certHints[o.id] || '證照詳細資料')}" ${!checked ? 'disabled' : ''}>
+                                      </div>
+                                    `;
+                                  }).join('')}
+                                </div>
+                              </div>
+                            </div>
+                          `;
+                        }
+                      }).join('')}
+                      <div class="bonus-item-row" style="background:rgba(176,141,58,0.04);">
+                        <div class="bonus-item-name">
+                          Others
+                          <div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">由 Promotion Committee 討論後填入</div>
+                        </div>
+                        <div class="bonus-item-control">
+                          <div style="display:flex;gap:10px;align-items:center;">
+                            <input type="number" step="0.1" min="0" max="20" value="${data.others || 0}" data-bonus-emp="${e.id}" data-others="score" class="bonus-input" style="width:80px;text-align:center;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);">分</span>
+                            <input type="text" value="${escapeHtml(data.othersNote || '')}" placeholder="說明(例: 特殊專案貢獻)" data-bonus-emp="${e.id}" data-others="note" class="bonus-input" style="flex:1;font-size:13px;">
+                          </div>
+                        </div>
+                      </div>
+
+                      ${bonus.breakdown.length > 0 ? `
+                        <div class="bonus-summary">
+                          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);margin-bottom:8px;">加分明細</div>
+                          ${bonus.breakdown.map(b => `
+                            <div style="padding:6px 0;font-size:13px;border-bottom:1px dashed var(--line-soft);">
+                              <div style="display:flex;justify-content:space-between;">
+                                <span><b>${escapeHtml(b.itemName)}</b>: ${escapeHtml(b.label)}</span>
+                                <span style="font-family:'JetBrains Mono',monospace;color:var(--gold);font-weight:600;">+${b.score}</span>
+                              </div>
+                              ${b.detail ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;padding-left:12px;border-left:2px solid var(--gold);">${escapeHtml(b.detail)}</div>` : ''}
+                            </div>
+                          `).join('')}
+                          <div style="display:flex;justify-content:space-between;padding-top:10px;margin-top:8px;border-top:1px solid var(--line-soft);font-family:'Fraunces',serif;font-size:18px;">
+                            <span>合計</span>
+                            <span style="color:var(--gold);font-weight:600;">+${bonus.score}</span>
+                          </div>
+                        </div>
+                      ` : ''}
+
+                      <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px;">
+                        <button class="btn secondary small" data-action="reset-bonus-emp" data-id="${e.id}">清除此員工加分</button>
+                        <button class="btn small" data-action="save-bonus-emp" data-id="${e.id}">儲存</button>
+                      </div>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderReviewTab() {
+  // 找出有提交資料的員工
+  const submissions = state.empSubmissions || {};
+  const reviewingEmpId = view.payload?.reviewingEmp || null;
+
+  // 列出所有員工依狀態分類
+  const submitted = [];
+  const reviewed = [];
+  const draft = [];
+  const noSubmission = [];
+  state.employees.forEach(e => {
+    const sub = submissions[e.id];
+    if (!sub || sub.status === 'draft') {
+      if (sub && sub.data && Object.keys(sub.data.items || {}).length > 0) {
+        draft.push(e);
+      } else {
+        noSubmission.push(e);
+      }
+    } else if (sub.status === 'submitted') {
+      submitted.push(e);
+    } else if (sub.status === 'reviewed') {
+      reviewed.push(e);
+    }
+  });
+
+  // 如果在審核某個員工,顯示審核介面
+  if (reviewingEmpId) {
+    return renderReviewDetail(reviewingEmpId);
+  }
+
+  return `
+    <div class="admin-section">
+      <h3>員工自填審核</h3>
+      <div style="font-size:13px;color:var(--ink-soft);line-height:1.7;margin-bottom:18px;">
+        員工從專屬連結提交的 Extra Contribution 申請,在此審核每一項。<br>
+        <span style="color:var(--ink-muted);font-size:12px;">審核完成後,系統會自動把通過的項目套用到「評分統計 → 加分後」模式中。</span>
+      </div>
+
+      <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr);">
+        <div class="stat-card">
+          <div class="label">待審核</div>
+          <div class="value" style="color:var(--gold);">${submitted.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">已審核</div>
+          <div class="value" style="color:var(--green);">${reviewed.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">草稿中</div>
+          <div class="value" style="color:var(--ink-muted);">${draft.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">尚未填寫</div>
+          <div class="value" style="color:var(--ink-muted);">${noSubmission.length}</div>
+        </div>
+      </div>
+
+      ${submitted.length > 0 ? `
+        <div style="margin-top:24px;">
+          <h4 style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:10px;color:var(--gold);">⏳ 待審核(${submitted.length})</h4>
+          ${submitted.map(e => renderEmpSubmissionRow(e, 'submitted')).join('')}
+        </div>
+      ` : ''}
+
+      ${reviewed.length > 0 ? `
+        <div style="margin-top:24px;">
+          <h4 style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:10px;color:var(--green);">✓ 已審核(${reviewed.length})</h4>
+          ${reviewed.map(e => renderEmpSubmissionRow(e, 'reviewed')).join('')}
+        </div>
+      ` : ''}
+
+      ${draft.length > 0 ? `
+        <div style="margin-top:24px;">
+          <h4 style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:10px;color:var(--ink-muted);">📝 員工編輯中(${draft.length})</h4>
+          ${draft.map(e => renderEmpSubmissionRow(e, 'draft')).join('')}
+        </div>
+      ` : ''}
+
+      ${noSubmission.length > 0 ? `
+        <div style="margin-top:24px;">
+          <h4 style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:10px;color:var(--ink-muted);">— 尚未填寫(${noSubmission.length})</h4>
+          <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;">提醒這些員工填寫,或可在 Extra Contribution 頁直接代填</div>
+          ${noSubmission.map(e => `
+            <div class="link-row" style="opacity:0.6;">
+              <div class="link-info">
+                <div style="font-family:'Fraunces',serif;font-size:14px;">${escapeHtml(e.name)} <span style="color:var(--ink-muted);font-size:12px;font-family:'JetBrains Mono',monospace;">${escapeHtml(e.enName || '')}</span></div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function renderEmpSubmissionRow(emp, status) {
+  const sub = getEmployeeSubmission(emp.id);
+  // 計算員工提交的總分
+  let appliedTotal = 0;
+  let itemCount = 0;
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    const sel = sub.data?.items?.[item.id];
+    if (item.type === 'single') {
+      if (!sel || sel === 'none') return;
+      const opt = item.options.find(o => o.id === sel);
+      if (opt) { appliedTotal += opt.score; itemCount++; }
+    } else {
+      const arr = Array.isArray(sel) ? sel : [];
+      arr.forEach(optId => {
+        const opt = item.options.find(o => o.id === optId);
+        if (opt) { appliedTotal += opt.score; itemCount++; }
+      });
+    }
+  });
+  if (sub.data?.others > 0) { appliedTotal += sub.data.others; itemCount++; }
+
+  // reviewed 模式:顯示實際加分
+  let actualBonus = null;
+  if (status === 'reviewed') {
+    actualBonus = getEmployeeBonus(emp.id).score;
+  }
+
+  return `
+    <div class="link-row" style="background:var(--bg);">
+      <div class="link-info">
+        <div style="font-family:'Fraunces',serif;font-size:15px;font-weight:500;">
+          ${escapeHtml(emp.name)}
+          <span style="color:var(--ink-muted);font-size:12px;font-family:'JetBrains Mono',monospace;margin-left:6px;">${escapeHtml(emp.enName || '')}</span>
+          <span class="tech-tag" style="margin-left:6px;">${escapeHtml(getEmployeeTech(emp))}</span>
+          <span style="color:var(--ink-muted);font-size:12px;margin-left:6px;">Band ${emp.currentBand} → ${emp.currentBand + 1}</span>
+        </div>
+        <div style="font-size:12px;color:var(--ink-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;">
+          申請 ${itemCount} 項 · 申請總分 ${appliedTotal.toFixed(1)}
+          ${actualBonus !== null ? ` · <span style="color:var(--green);font-weight:600;">實際加分 +${actualBonus}</span>` : ''}
+          ${sub.submittedAt ? ` · 提交於 ${new Date(sub.submittedAt).toLocaleString('zh-TW')}` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        ${status === 'submitted' ? `<button class="btn small" data-action="open-review" data-id="${emp.id}">開始審核</button>` : ''}
+        ${status === 'reviewed' ? `<button class="btn secondary small" data-action="open-review" data-id="${emp.id}">查看 / 重新審核</button>` : ''}
+        ${status === 'draft' ? `<button class="btn secondary small" data-action="open-review" data-id="${emp.id}">查看草稿</button>` : ''}
+        ${status !== 'draft' ? `<button class="btn danger small" data-action="reopen-submission" data-id="${emp.id}">退回給員工</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewDetail(empId) {
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) return '<div class="empty">找不到員工</div>';
+  const sub = getEmployeeSubmission(empId);
+  const data = sub.data || {};
+  const isDraft = sub.status === 'draft';
+  const isReviewed = sub.status === 'reviewed';
+
+  // 計算當下審核狀態下的加分(尚未存入 extraBonus 之前的預覽)
+  let previewBonus = 0;
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    const sel = data.items?.[item.id];
+    if (item.type === 'single') {
+      if (!sel || sel === 'none') return;
+      const review = sub.reviewedItems?.[item.id];
+      if (review === 'accepted') {
+        const opt = item.options.find(o => o.id === sel);
+        if (opt) previewBonus += opt.score;
+      } else if (review && typeof review === 'object' && review.adjustedTo) {
+        const opt = item.options.find(o => o.id === review.adjustedTo);
+        if (opt) previewBonus += opt.score;
+      }
+    } else {
+      const arr = Array.isArray(sel) ? sel : [];
+      arr.forEach(optId => {
+        const review = sub.reviewedCertItems?.[optId];
+        if (review === 'accepted') {
+          const opt = item.options.find(o => o.id === optId);
+          if (opt) previewBonus += opt.score;
+        }
+      });
+    }
+  });
+  if (sub.reviewedItems?.others === 'accepted') previewBonus += Number(data.others) || 0;
+
+  // 統計待審項目
+  let pendingCount = 0;
+  Object.values(sub.reviewedItems || {}).forEach(v => { if (v === 'pending') pendingCount++; });
+  Object.values(sub.reviewedCertItems || {}).forEach(v => { if (v === 'pending') pendingCount++; });
+
+  return `
+    <div style="margin-bottom:18px;">
+      <button class="btn secondary small" data-action="close-review">← 回到審核列表</button>
+    </div>
+
+    <div class="admin-section">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid var(--line);padding-bottom:14px;margin-bottom:18px;">
+        <div>
+          <h3 style="margin-bottom:4px;">${escapeHtml(emp.name)} · Extra Contribution 審核</h3>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);letter-spacing:0.06em;">
+            ${escapeHtml(emp.enName || '')} · Band ${emp.currentBand} → ${emp.currentBand + 1} · ${escapeHtml(getEmployeeTech(emp))}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);">${isDraft ? '員工申請中(尚未提交)' : '目前累計加分'}</div>
+          <div style="font-family:'Fraunces',serif;font-size:28px;font-weight:600;color:${isDraft ? 'var(--ink-muted)' : 'var(--gold)'};">${isDraft ? '—' : '+' + previewBonus.toFixed(1)}</div>
+          ${!isDraft && pendingCount > 0 ? `<div style="font-size:11px;color:var(--accent);margin-top:4px;">尚有 ${pendingCount} 項待審</div>` : ''}
+        </div>
+      </div>
+
+      ${isDraft ? `
+        <div style="background:rgba(176,141,58,0.08);border-left:3px solid var(--gold);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--ink-soft);line-height:1.6;">
+          <b>⚠ 員工尚未提交</b> — 此頁面顯示員工目前的草稿內容(可能還會修改)。<br>
+          <span style="color:var(--ink-muted);font-size:12px;">員工提交後狀態會變為「待審核」,屆時才能進行審核操作。</span>
+        </div>
+      ` : `
+        <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+          <button class="btn secondary small" data-action="bulk-review" data-empid="${empId}" data-action-type="accept-all">全部接受</button>
+          <button class="btn secondary small" data-action="bulk-review" data-empid="${empId}" data-action-type="reject-all">全部拒絕</button>
+          <div style="flex:1;"></div>
+          ${isReviewed ? `<span style="font-size:12px;color:var(--green);font-family:'JetBrains Mono',monospace;align-self:center;">✓ 已完成審核</span>` : ''}
+          <button class="btn" data-action="finalize-review" data-id="${empId}">完成審核(套用加分)</button>
+        </div>
+      `}
+
+      <div class="form-items">
+        ${EXTRA_CONTRIBUTION_ITEMS.map(item => renderReviewItemRow(emp, item, sub, isDraft)).join('')}
+
+        ${(Number(data.others) || 0) > 0 ? renderReviewOthersRow(emp, sub, isDraft) : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewItemRow(emp, item, sub, isDraft = false) {
+  const data = sub.data || {};
+  const sel = data.items?.[item.id];
+
+  if (item.type === 'single') {
+    if (!sel || sel === 'none') return '';  // 員工沒選
+    const opt = item.options.find(o => o.id === sel);
+    if (!opt) return '';
+    const review = sub.reviewedItems?.[item.id] || 'pending';
+    const detail = data.itemDetails?.[item.id] || '';
+    const isAdjusted = typeof review === 'object' && review.adjustedTo;
+    const adjustedToId = isAdjusted ? review.adjustedTo : null;
+
+    return `
+      <div class="form-item-row ${!isDraft ? renderItemReviewClass(review) : ''}">
+        <div class="form-item-name">
+          ${escapeHtml(item.name)}
+          <div style="font-size:12px;color:var(--ink-soft);font-weight:400;margin-top:6px;">
+            員工申請: <b>${escapeHtml(opt.label)}</b> <span style="color:var(--gold);">(+${opt.score})</span>
+          </div>
+          ${detail ? `<div style="font-size:11px;color:var(--ink-muted);margin-top:4px;padding-left:10px;border-left:2px solid var(--gold);">${escapeHtml(detail)}</div>` : '<div style="font-size:11px;color:var(--accent);margin-top:4px;">⚠ 員工未填具體說明</div>'}
+        </div>
+        <div class="form-item-control">
+          ${isDraft ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工尚未提交,無法審核</div>' : `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="review-btn ${review === 'accepted' ? 'active accept' : ''}" data-action="set-review" data-empid="${emp.id}" data-itemid="${item.id}" data-decision="accepted">✓ 接受</button>
+              <button class="review-btn ${review === 'rejected' ? 'active reject' : ''}" data-action="set-review" data-empid="${emp.id}" data-itemid="${item.id}" data-decision="rejected">✗ 拒絕</button>
+              <select class="review-adjust ${isAdjusted ? 'active adjusted' : ''}" data-empid="${emp.id}" data-itemid="${item.id}">
+                <option value="">↔ 調整為...</option>
+                ${item.options.filter(o => o.id !== 'none' && o.id !== sel).map(o => `
+                  <option value="${o.id}" ${adjustedToId === o.id ? 'selected' : ''}>${escapeHtml(o.label)} (+${o.score})</option>
+                `).join('')}
+              </select>
+            </div>
+            ${review === 'pending' ? '<div style="font-size:11px;color:var(--ink-muted);margin-top:6px;">⋯ 待您決定</div>' : ''}
+          `}
+        </div>
+      </div>
+    `;
+  } else {
+    // multi (Certification)
+    const arr = Array.isArray(sel) ? sel : [];
+    if (arr.length === 0) return '';
+    return `
+      <div class="form-item-row">
+        <div class="form-item-name">
+          ${escapeHtml(item.name)}
+          <div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">員工申請 ${arr.length} 張證照</div>
+        </div>
+        <div class="form-item-control">
+          <div class="bonus-multi-list">
+            ${arr.map(optId => {
+              const opt = item.options.find(o => o.id === optId);
+              if (!opt) return '';
+              const review = sub.reviewedCertItems?.[optId] || 'pending';
+              const certDetail = data.certDetails?.[optId] || '';
+              return `
+                <div class="bonus-multi-row ${!isDraft ? renderItemReviewClass(review) : ''}" style="grid-template-columns:1fr;gap:6px;padding:8px;border:1px solid var(--line-soft);">
+                  <div>
+                    <b>${escapeHtml(opt.label)}</b> <span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;">+${opt.score}</span>
+                    ${certDetail ? `<span style="color:var(--ink-soft);margin-left:8px;font-size:12px;">— ${escapeHtml(certDetail)}</span>` : '<span style="color:var(--accent);margin-left:8px;font-size:11px;">⚠ 無具體說明</span>'}
+                  </div>
+                  ${isDraft ? '' : `
+                    <div style="display:flex;gap:6px;">
+                      <button class="review-btn small ${review === 'accepted' ? 'active accept' : ''}" data-action="set-cert-review" data-empid="${emp.id}" data-optid="${optId}" data-decision="accepted">✓ 接受</button>
+                      <button class="review-btn small ${review === 'rejected' ? 'active reject' : ''}" data-action="set-cert-review" data-empid="${emp.id}" data-optid="${optId}" data-decision="rejected">✗ 拒絕</button>
+                    </div>
+                  `}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function renderReviewOthersRow(emp, sub, isDraft = false) {
+  const data = sub.data || {};
+  const review = sub.reviewedItems?.others || 'pending';
+  return `
+    <div class="form-item-row ${!isDraft ? renderItemReviewClass(review) : ''}" style="background:rgba(176,141,58,0.04);">
+      <div class="form-item-name">
+        Others
+        <div style="font-size:12px;color:var(--ink-soft);font-weight:400;margin-top:6px;">
+          員工申請: <b>+${data.others}</b>
+        </div>
+        ${data.othersNote ? `<div style="font-size:11px;color:var(--ink-muted);margin-top:4px;padding-left:10px;border-left:2px solid var(--gold);">${escapeHtml(data.othersNote)}</div>` : '<div style="font-size:11px;color:var(--accent);margin-top:4px;">⚠ 員工未填具體說明</div>'}
+        <div style="font-size:11px;color:var(--ink-muted);margin-top:4px;font-style:italic;">由 Promotion Committee Review 後決定</div>
+      </div>
+      <div class="form-item-control">
+        ${isDraft ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工尚未提交,無法審核</div>' : `
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="review-btn ${review === 'accepted' ? 'active accept' : ''}" data-action="set-review" data-empid="${emp.id}" data-itemid="others" data-decision="accepted">✓ 接受</button>
+            <button class="review-btn ${review === 'rejected' ? 'active reject' : ''}" data-action="set-review" data-empid="${emp.id}" data-itemid="others" data-decision="rejected">✗ 拒絕</button>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderEmployeesTab() {
+  // group by band
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(b) - Number(a);
+  });
+
+  return `
+    <div class="admin-section">
+      <h3>新增員工</h3>
+      <div class="add-form" style="grid-template-columns: 1fr 1fr 2fr 100px auto;">
+        <input type="text" id="newEmpName" placeholder="中文姓名">
+        <input type="text" id="newEmpEnName" placeholder="英文名(例:Allen.Lee)">
+        <input type="text" id="newEmpDept" placeholder="部門(需含括號 ex. ...(Wilbur))">
+        <select id="newEmpBand">
+          <option value="">目前職等</option>
+          <option value="3">Band 3</option>
+          <option value="4">Band 4</option>
+          <option value="5">Band 5</option>
+          <option value="6">Band 6</option>
+          <option value="7">Band 7</option>
+          <option value="8">Band 8</option>
+          <option value="9">Band 9</option>
+        </select>
+        <button class="btn" data-action="add-employee">新增</button>
+      </div>
+      <div style="font-size:12px;color:var(--ink-muted);margin-bottom:18px;font-family:'JetBrains Mono',monospace;letter-spacing:0.06em;">
+        ※ 部門名稱請保留括號內的主管識別字(例:臺北軟體設計一部(Wilbur)),系統會根據此括號自動規避主管。
+      </div>
+      ${state.employees.length === 0 ? '<div class="empty">尚未建立任何員工</div>' :
+        sortedBands.map(band => {
+          const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+          return `
+            <div style="margin-top:18px;">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line-soft);">
+                Band ${band} → Band ${targetBand} · ${bandGroups[band].length} 位
+              </div>
+              ${bandGroups[band].map(e => `
+                <div class="list-row">
+                  <div class="info">
+                    <div class="primary">${escapeHtml(e.name)} <span style="color:var(--ink-soft);font-size:13px;font-family:'JetBrains Mono',monospace;margin-left:8px;">${escapeHtml(e.enName || '')}</span> <span style="color:var(--ink-muted);font-size:12px;font-family:'JetBrains Mono',monospace;margin-left:8px;">${escapeHtml(e.id)}</span></div>
+                    <div class="secondary">${escapeHtml(displayDept(e.dept))}</div>
+                  </div>
+                  <button class="btn danger small" data-action="del-employee" data-id="${e.id}">刪除</button>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }).join('')
+      }
+    </div>
+  `;
+}
+
+function renderManagersTab() {
+  return `
+    <div class="admin-section">
+      <h3>新增主管</h3>
+      <div class="field">
+        <label>主管姓名</label>
+        <input type="text" id="newMgrName" placeholder="例:Robby">
+      </div>
+      <div class="field">
+        <label>自己部門識別字(避嫌規避)</label>
+        <input type="text" id="newMgrOwnDept" placeholder="員工部門括號內的字,例:Wilbur。額外評審請留空">
+      </div>
+      <div class="field">
+        <label>可評分的部門類別</label>
+        <div class="cat-checkboxes">
+          ${state.deptCategories.map(c => `
+            <label class="cat-checkbox">
+              <input type="checkbox" class="newMgrCat" value="${c.id}">
+              <span>${escapeHtml(c.name)}${c.tech ? ` <span style="color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;">(${escapeHtml(c.tech)})</span>` : ''}</span>
+            </label>
+          `).join('')}
+        </div>
+        <div style="font-size:12px;color:var(--ink-muted);margin-top:8px;font-family:'JetBrains Mono',monospace;letter-spacing:0.06em;">
+          ※ 全部不勾選 = 可評所有人(例如 Robby 這種跨部門大主管)
+        </div>
+      </div>
+      <button class="btn" data-action="add-manager">新增主管</button>
+
+      <div style="margin-top:18px;padding:14px 16px;background:var(--bg);border-left:3px solid var(--gold);font-size:12.5px;line-height:1.7;color:var(--ink-soft);">
+        <b style="color:var(--ink);">常見設定範例</b><br>
+        <b>部門主管</b>(會避嫌):自己部門識別字 = Wilbur,勾選可評技術領域<br>
+        <b>跨部門大主管</b>(評全部):自己部門識別字 = 留空,部門類別 = 全部不勾<br>
+        <b>額外評審</b>(評技術領域內全部、不避嫌):自己部門識別字 = 留空,勾選對應技術領域<br>
+        &nbsp;&nbsp;例:BIOS 資深評審 → 留空 + 勾「軟體設計 (BIOS)」+「韌體開發 (EC)」
+      </div>
+
+      <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--line-soft);">
+        ${state.managers.length === 0 ? '<div class="empty">尚未建立任何主管</div>' :
+          state.managers.map(m => {
+            const eligible = eligibleEmployees(m);
+            const ownDeptCount = state.employees.filter(e => isOwnDept(e, m)).length;
+            const isAll = !m.canReview || m.canReview.length === 0;
+            const catNames = isAll ? ['全部'] : (m.canReview || []).map(cid => {
+              const c = state.deptCategories.find(dc => dc.id === cid);
+              if (!c) return cid;
+              return c.tech ? `${c.name} · ${c.tech}` : c.name;
+            });
+            return `
+              <div class="list-row">
+                <div class="info">
+                  <div class="primary">
+                    ${escapeHtml(m.name)}
+                    ${m.ownDeptKeyword ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--ink);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">${escapeHtml(m.ownDeptKeyword)} 部門</span>` : ''}
+                    ${catNames.map(n => `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--bg);color:var(--accent);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">${escapeHtml(n)}</span>`).join('')}
+                    ${m.password ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;background:var(--green);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">已設定密碼</span>' : '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;background:var(--gold);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">尚未設定密碼</span>'}
+                  </div>
+                  <div class="secondary">可評核 ${eligible.length} / ${state.employees.length} 人${ownDeptCount > 0 ? ` · 規避自己部門 ${ownDeptCount} 人` : ''}</div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  ${m.password ? `<button class="btn secondary small" data-action="reset-mgr-pass" data-id="${m.id}">重置密碼</button>` : ''}
+                  <button class="btn danger small" data-action="del-manager" data-id="${m.id}">刪除</button>
+                </div>
+              </div>
+            `;
+          }).join('')
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderDimensionsTab() {
+  return `
+    <div class="admin-section">
+      <h3>新增評分維度</h3>
+      <div class="add-form">
+        <input type="text" id="newDimName" placeholder="維度名稱(例:工作績效)">
+        <input type="text" id="newDimDesc" placeholder="說明(主管打分時會看到)">
+        <button class="btn" data-action="add-dimension">新增</button>
+      </div>
+      ${state.dimensions.length === 0 ? '<div class="empty">尚未建立任何評分維度</div>' :
+        state.dimensions.map(d => `
+          <div class="list-row">
+            <div class="info">
+              <div class="primary">${escapeHtml(d.name)}</div>
+              <div class="secondary">${escapeHtml(d.desc || '(無說明)')}</div>
+            </div>
+            <button class="btn danger small" data-action="del-dimension" data-id="${d.id}">刪除</button>
+          </div>
+        `).join('')
+      }
+      <div style="margin-top:14px;font-size:12px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.08em;">
+        ※ 每個維度評分範圍 0.1 - 5.0(可使用一位小數)
+      </div>
+    </div>
+  `;
+}
+
+function renderSettingsTab() {
+  return `
+    <div class="admin-section">
+      <h3>修改管理者密碼</h3>
+      <div class="field">
+        <label>新密碼</label>
+        <input type="password" id="newPass" placeholder="輸入新密碼">
+      </div>
+      <div class="field">
+        <label>確認新密碼</label>
+        <input type="password" id="newPass2" placeholder="再次輸入">
+      </div>
+      <button class="btn" data-action="change-password">儲存</button>
+    </div>
+
+    <div class="admin-section">
+      <h3>資料管理</h3>
+      <div class="list-row">
+        <div class="info">
+          <div class="primary">清除所有評分</div>
+          <div class="secondary">保留人員與維度設定,僅刪除已輸入的分數</div>
+        </div>
+        <button class="btn danger small" data-action="clear-scores">清除評分</button>
+      </div>
+      <div class="list-row">
+        <div class="info">
+          <div class="primary">重置整個系統</div>
+          <div class="secondary">刪除所有人員、維度、評分,回復為初始範例資料</div>
+        </div>
+        <button class="btn danger small" data-action="reset-all">完全重置</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h3>關於本系統</h3>
+      <div style="font-size:13px;color:var(--ink-soft);line-height:1.7;">
+        本系統為瀏覽器原型,所有資料儲存於後端的共享儲存空間,可跨裝置同步。<br>
+        主管之間互相看不到彼此的評分,僅管理者可看到完整數據。<br>
+        評分尺度:每個維度 0.1 - 5.0(可使用一位小數)。
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// EVENT HANDLERS
+// =========================================================================
+function attachHandlers() {
+  document.querySelectorAll('[data-action]').forEach(el => {
+    el.addEventListener('click', handleAction);
+  });
+
+  // scoring sliders sync
+  document.querySelectorAll('.score-slider').forEach(slider => {
+    slider.addEventListener('input', e => {
+      const dim = e.target.dataset.dim;
+      const val = parseFloat(e.target.value);
+      const numInput = document.querySelector(`.score-number[data-dim="${dim}"]`);
+      if (numInput) numInput.value = val.toFixed(1);
+      updateLiveTotal();
+    });
+  });
+  document.querySelectorAll('.score-number').forEach(input => {
+    input.addEventListener('input', e => {
+      let val = parseFloat(e.target.value);
+      if (isNaN(val)) return;
+      if (val < 0.1) val = 0.1;
+      if (val > 5.0) val = 5.0;
+      const dim = e.target.dataset.dim;
+      const slider = document.querySelector(`.score-slider[data-dim="${dim}"]`);
+      if (slider) slider.value = val;
+      updateLiveTotal();
+    });
+    input.addEventListener('blur', e => {
+      let val = parseFloat(e.target.value);
+      if (isNaN(val) || val < 0.1) val = 0.1;
+      if (val > 5.0) val = 5.0;
+      e.target.value = val.toFixed(1);
+      updateLiveTotal();
+    });
+  });
+
+  updateLiveTotal();
+
+  // bonus single select 變動時 enable/disable 對應細項框
+  document.querySelectorAll('.bonus-select').forEach(sel => {
+    sel.addEventListener('change', e => {
+      const empId = e.target.dataset.bonusEmp;
+      const itemId = e.target.dataset.item;
+      const detail = document.querySelector(`.bonus-detail[data-bonus-emp="${empId}"][data-detail-item="${itemId}"]`);
+      if (detail) {
+        const enabled = e.target.value && e.target.value !== 'none';
+        detail.disabled = !enabled;
+        if (!enabled) detail.value = '';
+      }
+    });
+  });
+
+  // bonus multi (cert) checkbox 變動時 enable/disable 對應細項框
+  document.querySelectorAll('.bonus-multi').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const empId = e.target.dataset.bonusEmp;
+      const optId = e.target.value;
+      const detail = document.querySelector(`.bonus-cert-detail[data-bonus-emp="${empId}"][data-cert-opt="${optId}"]`);
+      if (detail) {
+        detail.disabled = !e.target.checked;
+        if (!e.target.checked) detail.value = '';
+      }
+    });
+  });
+
+  // review 調整下拉(select 變動)
+  document.querySelectorAll('.review-adjust').forEach(sel => {
+    sel.addEventListener('change', async e => {
+      const empId = e.target.dataset.empid;
+      const itemId = e.target.dataset.itemid;
+      const val = e.target.value;
+      if (!val) {
+        // 切回 pending
+        await handleSetReview(empId, itemId, 'pending');
+      } else {
+        await handleSetReview(empId, itemId, 'adjust:' + val);
+      }
+    });
+  });
+
+  // admin login enter key
+  const passInput = document.getElementById('adminPass');
+  if (passInput) {
+    passInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleAdminSubmit();
+    });
+  }
+  // 主管登入密碼 Enter
+  const mgrLoginPass = document.getElementById('mgrLoginPass');
+  if (mgrLoginPass) {
+    mgrLoginPass.addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleManagerLoginSubmit();
+    });
+  }
+  // 主管設定密碼 Enter (在第二格 confirm 框)
+  const mgrNewPass2 = document.getElementById('mgrNewPass2');
+  if (mgrNewPass2) {
+    mgrNewPass2.addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleManagerSetPassword();
+    });
+  }
+}
+
+function updateLiveTotal() {
+  const live = document.getElementById('liveTotal');
+  if (!live) return;
+  let sum = 0, count = 0;
+  document.querySelectorAll('.score-number').forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) { sum += v; count++; }
+  });
+  if (count === state.dimensions.length && count > 0) {
+    live.innerHTML = sum.toFixed(2) + '<span class="max"> / ' + (state.dimensions.length * 5).toFixed(1) + '</span>';
+  }
+}
+
+async function handleAction(e) {
+  const action = e.currentTarget.dataset.action;
+  const id = e.currentTarget.dataset.id;
+
+  switch(action) {
+    case 'goto-manager':
+      view = { mode: 'manager_select', payload: null };
+      render();
+      break;
+    case 'goto-admin':
+      view = { mode: 'admin_login', payload: null };
+      render();
+      break;
+    case 'back-to-picker':
+      view = { mode: 'picker', payload: null };
+      render();
+      break;
+    case 'logout':
+      view = { mode: 'picker', payload: null };
+      render();
+      break;
+    case 'select-manager': {
+      const mgr = state.managers.find(m => m.id === id);
+      if (!mgr) break;
+      if (!mgr.password) {
+        view = { mode: 'manager_set_password', payload: { managerId: id } };
+      } else {
+        view = { mode: 'manager_login_password', payload: { managerId: id } };
+      }
+      render();
+      break;
+    }
+    case 'manager-set-password-submit':
+      await handleManagerSetPassword();
+      break;
+    case 'manager-login-submit':
+      handleManagerLoginSubmit();
+      break;
+    case 'manager-change-password':
+      await handleManagerChangePassword();
+      break;
+    case 'reset-mgr-pass':
+      await handleResetManagerPassword(id);
+      break;
+    case 'emp-save-draft':
+      await handleEmpSaveDraft();
+      break;
+    case 'emp-submit':
+      await handleEmpSubmit();
+      break;
+    case 'copy-emp-link':
+      await handleCopyEmpLink(id);
+      break;
+    case 'copy-band-links':
+      await handleCopyBandLinks(e.currentTarget.dataset.band);
+      break;
+    case 'copy-all-links':
+      await handleCopyAllLinks();
+      break;
+    case 'open-review':
+      view.payload = { ...(view.payload || {}), reviewingEmp: id };
+      render();
+      break;
+    case 'close-review':
+      view.payload = { ...(view.payload || {}), reviewingEmp: null };
+      render();
+      break;
+    case 'set-review':
+      await handleSetReview(e.currentTarget.dataset.empid, e.currentTarget.dataset.itemid, e.currentTarget.dataset.decision);
+      break;
+    case 'set-cert-review':
+      await handleSetCertReview(e.currentTarget.dataset.empid, e.currentTarget.dataset.optid, e.currentTarget.dataset.decision);
+      break;
+    case 'bulk-review':
+      await handleBulkReview(e.currentTarget.dataset.empid, e.currentTarget.dataset.actionType);
+      break;
+    case 'finalize-review':
+      await handleFinalizeReview(id);
+      break;
+    case 'reopen-submission':
+      await handleReopenSubmission(id);
+      break;
+    case 'select-employee':
+      view.payload.employeeId = id;
+      render();
+      break;
+    case 'back-to-emp-list':
+      view.payload.employeeId = null;
+      render();
+      break;
+    case 'save-scores':
+      await handleSaveScores();
+      break;
+    case 'admin-submit':
+      handleAdminSubmit();
+      break;
+    case 'admin-tab':
+      view.payload = { tab: e.currentTarget.dataset.tab, statsMode: view.payload?.statsMode || 'raw' };
+      render();
+      break;
+    case 'set-stats-mode':
+      view.payload = { ...(view.payload || {}), statsMode: e.currentTarget.dataset.mode };
+      render();
+      break;
+    case 'toggle-bonus-emp':
+      view.payload = { ...(view.payload || {}), expandedBonus: view.payload?.expandedBonus === id ? null : id };
+      render();
+      break;
+    case 'save-bonus-emp':
+      await handleSaveBonusEmp(id);
+      break;
+    case 'reset-bonus-emp':
+      await handleResetBonusEmp(id);
+      break;
+    case 'add-employee':
+      await handleAddEmployee();
+      break;
+    case 'del-employee':
+      await handleDeleteEmployee(id);
+      break;
+    case 'add-manager':
+      await handleAddManager();
+      break;
+    case 'del-manager':
+      await handleDeleteManager(id);
+      break;
+    case 'add-dimension':
+      await handleAddDimension();
+      break;
+    case 'del-dimension':
+      await handleDeleteDimension(id);
+      break;
+    case 'change-password':
+      await handleChangePassword();
+      break;
+    case 'clear-scores':
+      await handleClearScores();
+      break;
+    case 'reset-all':
+      await handleResetAll();
+      break;
+    case 'toggle-detail':
+      handleToggleDetail(e.currentTarget.dataset.target, e.currentTarget);
+      break;
+    case 'export-csv':
+      handleExportCsv();
+      break;
+    case 'export-detail-csv':
+      handleExportDetailCsv();
+      break;
+  }
+}
+
+async function handleSaveScores() {
+  const mgrId = view.payload.managerId;
+  const empId = view.payload.employeeId;
+  const newScores = {};
+  let valid = true;
+  document.querySelectorAll('.score-number').forEach(inp => {
+    const dim = inp.dataset.dim;
+    const v = parseFloat(inp.value);
+    if (isNaN(v) || v < 0.1 || v > 5.0) { valid = false; return; }
+    newScores[dim] = Math.round(v * 10) / 10;
+  });
+  if (!valid || Object.keys(newScores).length !== state.dimensions.length) {
+    toast('請確認所有維度都已輸入有效分數');
+    return;
+  }
+  if (!state.scores[empId]) state.scores[empId] = {};
+  state.scores[empId][mgrId] = newScores;
+  await saveState(state);
+  toast('評分已儲存');
+  view.payload.employeeId = null;
+  render();
+}
+
+async function handleManagerSetPassword() {
+  const p1 = document.getElementById('mgrNewPass').value;
+  const p2 = document.getElementById('mgrNewPass2').value;
+  const err = document.getElementById('mgrSetErr');
+  err.classList.add('hidden');
+  if (!p1 || p1.length < 4) {
+    err.textContent = '密碼至少 4 字元';
+    err.classList.remove('hidden');
+    return;
+  }
+  if (p1 !== p2) {
+    err.textContent = '兩次密碼不一致';
+    err.classList.remove('hidden');
+    return;
+  }
+  const mgrId = view.payload.managerId;
+  const mgr = state.managers.find(m => m.id === mgrId);
+  if (!mgr) return;
+  mgr.password = p1;
+  await saveState(state);
+  toast('密碼已設定,登入成功');
+  view = { mode: 'manager_score', payload: { managerId: mgrId } };
+  render();
+}
+
+function handleManagerLoginSubmit() {
+  const pass = document.getElementById('mgrLoginPass').value;
+  const mgrId = view.payload.managerId;
+  const mgr = state.managers.find(m => m.id === mgrId);
+  if (!mgr) return;
+  if (pass === mgr.password) {
+    view = { mode: 'manager_score', payload: { managerId: mgrId } };
+    render();
+  } else {
+    document.getElementById('mgrLoginErr').classList.remove('hidden');
+  }
+}
+
+async function handleManagerChangePassword() {
+  const p1 = document.getElementById('mgrChangePass1').value;
+  const p2 = document.getElementById('mgrChangePass2').value;
+  if (!p1 || p1.length < 4) { toast('密碼至少 4 字元'); return; }
+  if (p1 !== p2) { toast('兩次密碼不一致'); return; }
+  const mgrId = view.payload.managerId;
+  const mgr = state.managers.find(m => m.id === mgrId);
+  if (!mgr) return;
+  mgr.password = p1;
+  await saveState(state);
+  toast('密碼已更新');
+  document.getElementById('mgrChangePass1').value = '';
+  document.getElementById('mgrChangePass2').value = '';
+}
+
+async function handleEmpSaveDraft() {
+  await collectAndSaveEmpForm('draft');
+  toast('草稿已儲存');
+  render();
+}
+
+async function handleEmpSubmit() {
+  if (!confirm('確定提交審核?提交後將無法自行修改,如需修改請聯繫管理者退回。')) return;
+  await collectAndSaveEmpForm('submitted');
+  toast('已提交,等待管理者審核');
+  render();
+}
+
+async function collectAndSaveEmpForm(newStatus) {
+  const empId = view.payload.empId;
+  if (!state.empSubmissions) state.empSubmissions = {};
+  if (!state.empSubmissions[empId]) {
+    state.empSubmissions[empId] = { status: 'draft', data: { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' }, reviewedItems: {}, reviewedCertItems: {}, submittedAt: null };
+  }
+  const sub = state.empSubmissions[empId];
+  if (!sub.data) sub.data = { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' };
+  if (!sub.data.items) sub.data.items = {};
+  if (!sub.data.itemDetails) sub.data.itemDetails = {};
+  if (!sub.data.certDetails) sub.data.certDetails = {};
+
+  // 清空後重新收集
+  sub.data.items = {};
+  sub.data.itemDetails = {};
+  sub.data.certDetails = {};
+
+  // single
+  document.querySelectorAll('.emp-select').forEach(sel => {
+    const itemId = sel.dataset.item;
+    if (sel.value && sel.value !== 'none') sub.data.items[itemId] = sel.value;
+  });
+  document.querySelectorAll('.emp-detail').forEach(inp => {
+    const itemId = inp.dataset.detailItem;
+    if (sub.data.items[itemId]) {
+      const v = inp.value.trim();
+      if (v) sub.data.itemDetails[itemId] = v;
+    }
+  });
+
+  // multi (cert)
+  const multiByItem = {};
+  document.querySelectorAll('.emp-multi').forEach(cb => {
+    const itemId = cb.dataset.item;
+    if (!multiByItem[itemId]) multiByItem[itemId] = [];
+    if (cb.checked) multiByItem[itemId].push(cb.value);
+  });
+  Object.keys(multiByItem).forEach(itemId => {
+    if (multiByItem[itemId].length > 0) sub.data.items[itemId] = multiByItem[itemId];
+  });
+
+  // cert details
+  document.querySelectorAll('.emp-cert-detail').forEach(inp => {
+    const optId = inp.dataset.certOpt;
+    const cb = document.querySelector(`.emp-multi[value="${optId}"]`);
+    if (cb && cb.checked) {
+      const v = inp.value.trim();
+      if (v) sub.data.certDetails[optId] = v;
+    }
+  });
+
+  // others
+  const othersScore = document.querySelector('.emp-others[data-others="score"]');
+  const othersNote = document.querySelector('.emp-others[data-others="note"]');
+  if (othersScore) {
+    const v = parseFloat(othersScore.value);
+    sub.data.others = isNaN(v) ? 0 : Math.round(v * 10) / 10;
+  }
+  if (othersNote) sub.data.othersNote = othersNote.value.trim();
+
+  // 狀態變更
+  if (newStatus === 'submitted') {
+    sub.status = 'submitted';
+    sub.submittedAt = Date.now();
+    // 把所有有填寫的項目設為 pending
+    sub.reviewedItems = {};
+    sub.reviewedCertItems = {};
+    Object.keys(sub.data.items).forEach(itemId => {
+      const item = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+      if (item && item.type === 'single') {
+        sub.reviewedItems[itemId] = 'pending';
+      } else if (item && item.type === 'multi') {
+        sub.data.items[itemId].forEach(optId => {
+          sub.reviewedCertItems[optId] = 'pending';
+        });
+      }
+    });
+    if (sub.data.others > 0) sub.reviewedItems.others = 'pending';
+  } else {
+    sub.status = 'draft';
+  }
+
+  await saveState(state);
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    // fallback: textarea
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch (e2) {
+      return false;
+    }
+  }
+}
+
+async function handleCopyEmpLink(empId) {
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) return;
+  const link = buildEmployeeLink(empId);
+  const text = `${emp.name}(${emp.enName || ''})\n${link}`;
+  const ok = await copyToClipboard(text);
+  toast(ok ? `已複製 ${emp.name} 的連結` : '複製失敗,請手動複製');
+}
+
+async function handleCopyBandLinks(band) {
+  const emps = state.employees.filter(e => String(e.currentBand ?? '未設定') === String(band));
+  if (emps.length === 0) return;
+  const lines = emps.map(e => `${e.name}(${e.enName || ''})\t${buildEmployeeLink(e.id)}`);
+  const text = `Band ${band} → Band ${Number(band)+1} 自填連結(${emps.length} 人)\n\n` + lines.join('\n');
+  const ok = await copyToClipboard(text);
+  toast(ok ? `已複製 Band ${band} 共 ${emps.length} 個連結` : '複製失敗');
+}
+
+async function handleCopyAllLinks() {
+  if (state.employees.length === 0) return;
+  // group by band
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(b) - Number(a);
+  });
+  const sections = sortedBands.map(band => {
+    const emps = bandGroups[band];
+    const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+    const lines = emps.map(e => `${e.name}(${e.enName || ''})\t${buildEmployeeLink(e.id)}`);
+    return `=== Band ${band} → Band ${targetBand}(${emps.length} 人)===\n${lines.join('\n')}`;
+  });
+  const text = `Extra Contribution 自填連結(共 ${state.employees.length} 人)\n\n` + sections.join('\n\n');
+  const ok = await copyToClipboard(text);
+  toast(ok ? `已複製全部 ${state.employees.length} 個連結` : '複製失敗');
+}
+
+async function handleSetReview(empId, itemId, decision) {
+  if (!state.empSubmissions || !state.empSubmissions[empId]) return;
+  const sub = state.empSubmissions[empId];
+  if (!sub.reviewedItems) sub.reviewedItems = {};
+  if (decision === 'accepted' || decision === 'rejected' || decision === 'pending') {
+    sub.reviewedItems[itemId] = decision;
+  } else if (decision.startsWith('adjust:')) {
+    const adjustedTo = decision.substring(7);
+    sub.reviewedItems[itemId] = { adjustedTo };
+  }
+  await saveState(state);
+  render();
+}
+
+async function handleSetCertReview(empId, optId, decision) {
+  if (!state.empSubmissions || !state.empSubmissions[empId]) return;
+  const sub = state.empSubmissions[empId];
+  if (!sub.reviewedCertItems) sub.reviewedCertItems = {};
+  sub.reviewedCertItems[optId] = decision;
+  await saveState(state);
+  render();
+}
+
+async function handleBulkReview(empId, type) {
+  if (!state.empSubmissions || !state.empSubmissions[empId]) return;
+  const sub = state.empSubmissions[empId];
+  if (!sub.reviewedItems) sub.reviewedItems = {};
+  if (!sub.reviewedCertItems) sub.reviewedCertItems = {};
+  const decision = type === 'accept-all' ? 'accepted' : 'rejected';
+
+  // 對所有有提交的項目 (包括 cert) 都設成同個決定
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    const sel = sub.data?.items?.[item.id];
+    if (item.type === 'single') {
+      if (sel && sel !== 'none') sub.reviewedItems[item.id] = decision;
+    } else {
+      const arr = Array.isArray(sel) ? sel : [];
+      arr.forEach(optId => { sub.reviewedCertItems[optId] = decision; });
+    }
+  });
+  if ((Number(sub.data?.others) || 0) > 0) sub.reviewedItems.others = decision;
+
+  await saveState(state);
+  render();
+}
+
+async function handleFinalizeReview(empId) {
+  const sub = state.empSubmissions?.[empId];
+  if (!sub) return;
+  // 檢查有沒有還在 pending 的
+  let pending = 0;
+  Object.values(sub.reviewedItems || {}).forEach(v => { if (v === 'pending') pending++; });
+  Object.values(sub.reviewedCertItems || {}).forEach(v => { if (v === 'pending') pending++; });
+  if (pending > 0) {
+    if (!confirm(`還有 ${pending} 項尚未決定(待審狀態),這些項目將不會計入加分。\n確定要完成審核?`)) return;
+  }
+  sub.status = 'reviewed';
+  applyReviewedSubmission(empId);
+  await saveState(state);
+  toast('審核完成,加分已套用');
+  view.payload.reviewingEmp = null;
+  render();
+}
+
+async function handleReopenSubmission(empId) {
+  const sub = state.empSubmissions?.[empId];
+  if (!sub) return;
+  const emp = state.employees.find(e => e.id === empId);
+  if (!confirm(`確定要退回 ${emp?.name || empId} 的申請?\n員工會被允許重新編輯與提交;先前的審核結果會保留(等員工再次提交後可繼續或重新審核)。`)) return;
+  sub.status = 'draft';
+  // 已經套用到 extraBonus 的清掉(等下一次完成審核再套用)
+  if (state.extraBonus && state.extraBonus[empId]) {
+    delete state.extraBonus[empId];
+  }
+  await saveState(state);
+  toast('已退回給員工');
+  render();
+}
+
+async function handleResetManagerPassword(mgrId) {
+  const mgr = state.managers.find(m => m.id === mgrId);
+  if (!mgr) return;
+  if (!confirm(`確定要重置 ${mgr.name} 的密碼?\n重置後該主管下次登入會被要求重新設定密碼。`)) return;
+  delete mgr.password;
+  await saveState(state);
+  toast(mgr.name + ' 的密碼已重置');
+  render();
+}
+
+function handleAdminSubmit() {
+  const pass = document.getElementById('adminPass').value;
+  if (pass === state.managerPassword) {
+    view = { mode: 'admin', payload: { tab: 'stats' } };
+    render();
+  } else {
+    document.getElementById('loginErr').classList.remove('hidden');
+  }
+}
+
+async function handleAddEmployee() {
+  const name = document.getElementById('newEmpName').value.trim();
+  const enName = document.getElementById('newEmpEnName').value.trim();
+  const dept = document.getElementById('newEmpDept').value.trim();
+  const bandStr = document.getElementById('newEmpBand').value;
+  if (!name) { toast('請輸入員工姓名'); return; }
+  const newEmp = { id: uid('emp'), name, dept: dept || '—' };
+  if (enName) {
+    newEmp.enName = enName;
+    newEmp.email = enName + '@lcfuturecenter.com';
+  }
+  if (bandStr) newEmp.currentBand = Number(bandStr);
+  state.employees.push(newEmp);
+  await saveState(state);
+  toast('員工已新增');
+  render();
+}
+
+async function handleDeleteEmployee(id) {
+  if (!confirm('確定要刪除此員工?其所有評分也會一併刪除。')) return;
+  state.employees = state.employees.filter(e => e.id !== id);
+  delete state.scores[id];
+  await saveState(state);
+  toast('員工已刪除');
+  render();
+}
+
+async function handleAddManager() {
+  const name = document.getElementById('newMgrName').value.trim();
+  const ownDeptKeyword = document.getElementById('newMgrOwnDept').value.trim();
+  const checked = Array.from(document.querySelectorAll('.newMgrCat:checked')).map(cb => cb.value);
+  if (!name) { toast('請輸入主管姓名'); return; }
+  state.managers.push({ id: uid('mgr'), name, ownDeptKeyword, canReview: checked });
+  await saveState(state);
+  toast('主管已新增');
+  render();
+}
+
+async function handleDeleteManager(id) {
+  if (!confirm('確定要刪除此主管?其所有評分也會一併刪除。')) return;
+  state.managers = state.managers.filter(m => m.id !== id);
+  Object.keys(state.scores).forEach(empId => {
+    if (state.scores[empId][id]) delete state.scores[empId][id];
+  });
+  await saveState(state);
+  toast('主管已刪除');
+  render();
+}
+
+async function handleAddDimension() {
+  const name = document.getElementById('newDimName').value.trim();
+  const desc = document.getElementById('newDimDesc').value.trim();
+  if (!name) { toast('請輸入維度名稱'); return; }
+  state.dimensions.push({ id: uid('d'), name, desc });
+  await saveState(state);
+  toast('維度已新增');
+  render();
+}
+
+async function handleDeleteDimension(id) {
+  if (!confirm('確定要刪除此維度?所有相關分數也會被清除。')) return;
+  state.dimensions = state.dimensions.filter(d => d.id !== id);
+  Object.keys(state.scores).forEach(empId => {
+    Object.keys(state.scores[empId]).forEach(mgrId => {
+      delete state.scores[empId][mgrId][id];
+    });
+  });
+  await saveState(state);
+  toast('維度已刪除');
+  render();
+}
+
+async function handleChangePassword() {
+  const p1 = document.getElementById('newPass').value;
+  const p2 = document.getElementById('newPass2').value;
+  if (!p1) { toast('請輸入新密碼'); return; }
+  if (p1 !== p2) { toast('兩次密碼不一致'); return; }
+  state.managerPassword = p1;
+  await saveState(state);
+  toast('密碼已更新');
+  render();
+}
+
+async function handleSaveBonusEmp(empId) {
+  if (!state.extraBonus) state.extraBonus = {};
+  if (!state.extraBonus[empId]) state.extraBonus[empId] = { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' };
+  const data = state.extraBonus[empId];
+  if (!data.items) data.items = {};
+  if (!data.itemDetails) data.itemDetails = {};
+  if (!data.certDetails) data.certDetails = {};
+
+  // single selects
+  document.querySelectorAll(`.bonus-select[data-bonus-emp="${empId}"]`).forEach(sel => {
+    const itemId = sel.dataset.item;
+    const val = sel.value;
+    if (val && val !== 'none') {
+      data.items[itemId] = val;
+    } else {
+      delete data.items[itemId];
+      delete data.itemDetails[itemId];  // 取消選擇時也清掉細項
+    }
+  });
+
+  // single 細項
+  document.querySelectorAll(`.bonus-detail[data-bonus-emp="${empId}"]`).forEach(inp => {
+    const itemId = inp.dataset.detailItem;
+    if (data.items[itemId]) {
+      const v = inp.value.trim();
+      if (v) data.itemDetails[itemId] = v;
+      else delete data.itemDetails[itemId];
+    }
+  });
+
+  // multi checkboxes (group by item id)
+  const multiByItem = {};
+  document.querySelectorAll(`.bonus-multi[data-bonus-emp="${empId}"]`).forEach(cb => {
+    const itemId = cb.dataset.item;
+    if (!multiByItem[itemId]) multiByItem[itemId] = [];
+    if (cb.checked) multiByItem[itemId].push(cb.value);
+  });
+  Object.keys(multiByItem).forEach(itemId => {
+    if (multiByItem[itemId].length > 0) {
+      data.items[itemId] = multiByItem[itemId];
+    } else {
+      delete data.items[itemId];
+    }
+  });
+
+  // cert 細項(每張證照各自一個)
+  document.querySelectorAll(`.bonus-cert-detail[data-bonus-emp="${empId}"]`).forEach(inp => {
+    const optId = inp.dataset.certOpt;
+    // 只有勾選的才存細項
+    const cb = document.querySelector(`.bonus-multi[data-bonus-emp="${empId}"][value="${optId}"]`);
+    if (cb && cb.checked) {
+      const v = inp.value.trim();
+      if (v) data.certDetails[optId] = v;
+      else delete data.certDetails[optId];
+    } else {
+      delete data.certDetails[optId];
+    }
+  });
+
+  // others
+  const othersScore = document.querySelector(`[data-bonus-emp="${empId}"][data-others="score"]`);
+  const othersNote = document.querySelector(`[data-bonus-emp="${empId}"][data-others="note"]`);
+  if (othersScore) {
+    const v = parseFloat(othersScore.value);
+    data.others = isNaN(v) ? 0 : Math.round(v * 10) / 10;
+  }
+  if (othersNote) data.othersNote = othersNote.value.trim();
+
+  await saveState(state);
+  toast('加分已儲存');
+  render();
+}
+
+async function handleResetBonusEmp(empId) {
+  if (!confirm('確定清除此員工的所有 Extra Contribution 加分?')) return;
+  if (state.extraBonus && state.extraBonus[empId]) {
+    delete state.extraBonus[empId];
+    await saveState(state);
+  }
+  toast('已清除');
+  render();
+}
+
+async function handleClearScores() {
+  if (!confirm('確定清除所有評分?此動作無法復原。')) return;
+  state.scores = {};
+  await saveState(state);
+  toast('所有評分已清除');
+  render();
+}
+
+async function handleResetAll() {
+  if (!confirm('確定完全重置系統?所有資料(包含人員、維度、評分)都會回復為初始範例。')) return;
+  state = defaultState();
+  await saveState(state);
+  toast('系統已重置');
+  view = { mode: 'admin', payload: { tab: 'stats' } };
+  render();
+}
+
+function handleToggleDetail(targetId, btn) {
+  const row = document.getElementById(targetId);
+  if (!row) return;
+  if (row.classList.contains('hidden')) {
+    row.classList.remove('hidden');
+    btn.textContent = '收合';
+  } else {
+    row.classList.add('hidden');
+    btn.textContent = '展開';
+  }
+}
+
+function handleExportCsv() {
+  const mode = view.payload?.statsMode || 'raw';
+  const trimMode = mode === 'trimmed';
+  const rows = [['目前職等', '目標職等', '組內名次', 'Employee ID', '員工', '英文名', '技術', 'Email', '單位', '性別', '原始平均總分', '原始平均單項', '調整後平均總分', '調整後平均單項', 'Extra 加分', '加分後總分', '加分備註', '是否觸發排除', '評分人數', '應評人數', '升遷資格']];
+
+  // 同時計算兩種平均
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    const raw = computeEmployeeAverage(e.id);
+    const trimmed = computeEmployeeAverageTrimmed(e.id);
+    const bonus = getEmployeeBonus(e.id);
+    bandGroups[b].push({
+      emp: e,
+      rawAvg: raw.avg,
+      trimmedAvg: trimmed.avg,
+      bonus: bonus.score || 0,
+      bonusNote: bonus.note || '',
+      withBonus: trimmed.avg !== null ? trimmed.avg + (bonus.score || 0) : null,
+      trimmedAny: trimmed.trimmedAny,
+      count: raw.count,
+      eligibleMgrCount: eligibleManagers(e).length
+    });
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(b) - Number(a);
+  });
+
+  sortedBands.forEach(band => {
+    // 排序依目前模式
+    const group = bandGroups[band].sort((a, b) => {
+      const av = mode === 'raw' ? a.rawAvg : (mode === 'trimmed' ? a.trimmedAvg : a.withBonus);
+      const bv = mode === 'raw' ? b.rawAvg : (mode === 'trimmed' ? b.trimmedAvg : b.withBonus);
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      return bv - av;
+    });
+    const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+    const dimCount = state.dimensions.length;
+    group.forEach((r, i) => {
+      // 資格判斷一律用「不含加分」的單項分數判斷
+      const judgeAvg = mode === 'raw' ? r.rawAvg : r.trimmedAvg;
+      const dimAvgForJudge = judgeAvg !== null && dimCount > 0 ? judgeAvg / dimCount : null;
+      const eligible = dimAvgForJudge === null ? '—' : (dimAvgForJudge < 4 ? '不符資格' : '符合');
+      rows.push([
+        'Band ' + band,
+        'Band ' + targetBand,
+        i + 1,
+        r.emp.id,
+        r.emp.name,
+        r.emp.enName || '',
+        getEmployeeTech(r.emp),
+        r.emp.email || '',
+        r.emp.dept,
+        r.emp.gender || '',
+        r.rawAvg !== null ? r.rawAvg.toFixed(2) : '',
+        r.rawAvg !== null && dimCount > 0 ? (r.rawAvg/dimCount).toFixed(2) : '',
+        r.trimmedAvg !== null ? r.trimmedAvg.toFixed(2) : '',
+        r.trimmedAvg !== null && dimCount > 0 ? (r.trimmedAvg/dimCount).toFixed(2) : '',
+        r.bonus > 0 ? r.bonus.toFixed(1) : '',
+        r.withBonus !== null ? r.withBonus.toFixed(2) : '',
+        r.bonusNote || '',
+        r.trimmedAny ? '是' : '否',
+        r.count,
+        r.eligibleMgrCount,
+        eligible
+      ]);
+    });
+  });
+  downloadCsv(rows, '升遷評分總表.csv');
+}
+
+function handleExportDetailCsv() {
+  const header = ['目前職等', '目標職等', 'Employee ID', '員工', '英文名', '技術', '單位', '主管', ...state.dimensions.map(d => d.name), '總分(原始)', '備註'];
+  const rows = [header];
+
+  // group by band for ordered output
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(b) - Number(a);
+  });
+
+  sortedBands.forEach(band => {
+    const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+    bandGroups[band].forEach(e => {
+      const dimStats = computeDimensionStats(e.id);
+      state.managers.forEach(m => {
+        // 跳過無評分權的主管
+        if (!canManagerReview(m, e)) return;
+        const s = getManagerScoreForEmployee(e.id, m.id);
+        const total = computeManagerTotal(e.id, m.id);
+        // 標示哪些維度被排除
+        const excludedDims = [];
+        state.dimensions.forEach(d => {
+          if (dimStats[d.id]?.excludedMgrs?.includes(m.id)) {
+            excludedDims.push(d.name);
+          }
+        });
+        rows.push([
+          'Band ' + band,
+          'Band ' + targetBand,
+          e.id,
+          e.name,
+          e.enName || '',
+          getEmployeeTech(e),
+          e.dept,
+          m.name,
+          ...state.dimensions.map(d => {
+            const v = s[d.id];
+            if (typeof v !== 'number') return '';
+            const excluded = dimStats[d.id]?.excludedMgrs?.includes(m.id);
+            return excluded ? v.toFixed(1) + ' *' : v.toFixed(1);
+          }),
+          total !== null ? total.toFixed(2) : '',
+          excludedDims.length > 0 ? '排除: ' + excludedDims.join('、') : ''
+        ]);
+      });
+    });
+  });
+  downloadCsv(rows, '升遷評分明細.csv');
+}
+
+function downloadCsv(rows, filename) {
+  // BOM for Excel UTF-8 support
+  const bom = '\uFEFF';
+  const csv = bom + rows.map(r => r.map(cell => {
+    const s = String(cell ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV 已下載');
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// =========================================================================
+// INIT
+// =========================================================================
+(async function init() {
+  state = await loadState();
+  // 檢查 URL 是否帶 ?emp=員工ID,有的話直接進員工填寫頁
+  const params = new URLSearchParams(window.location.search);
+  const empId = params.get('emp');
+  if (empId) {
+    const emp = state.employees.find(e => e.id === empId);
+    if (emp) {
+      view = { mode: 'employee_form', payload: { empId } };
+    }
+  }
+  render();
+})();
+</script>
+</body>
+</html>
