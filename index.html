@@ -106,6 +106,18 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
 }
 .session-info button:hover { background: var(--ink); color: var(--bg-paper); }
 
+#syncStatus {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border: 1px solid;
+  transition: all 0.2s;
+}
+#syncStatus.sync-saved { color: var(--green); border-color: var(--green); }
+#syncStatus.sync-saving { color: var(--gold); border-color: var(--gold); }
+#syncStatus.sync-error { color: var(--accent); border-color: var(--accent); }
+
 /* ================== ROLE PICKER ================== */
 .role-picker {
   background: var(--bg-paper);
@@ -1198,6 +1210,9 @@ table.results .score-cell {
   .add-form { grid-template-columns: 1fr; }
 }
 </style>
+<!-- Firebase SDK (compat version, 從 global window.firebase 使用) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -1388,28 +1403,145 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   }
 ];
 
+// =========================================================================
+// FIREBASE STORAGE LAYER
+// =========================================================================
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAyOCJphR754iYZpZ2UqfdPJz58hzLWuHY",
+  authDomain: "promotion-review-f1468.firebaseapp.com",
+  databaseURL: "https://promotion-review-f1468-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "promotion-review-f1468",
+  storageBucket: "promotion-review-f1468.firebasestorage.app",
+  messagingSenderId: "493079061947",
+  appId: "1:493079061947:web:c5aa0287dc4415825e109e"
+};
+
+let fbApp = null;
+let fbDb = null;
+let fbStateRef = null;
+let isApplyingRemote = false;  // 防止監聽器自我觸發
+let saveDebounceTimer = null;
+
+function initFirebase() {
+  // 用 compat API 從全域 window.firebase 取得
+  if (typeof firebase === 'undefined') {
+    throw new Error('Firebase SDK 未載入(可能是網路被擋)');
+  }
+  if (!firebase.initializeApp) {
+    throw new Error('Firebase app SDK 沒載入完成');
+  }
+  if (!firebase.database) {
+    throw new Error('Firebase database SDK 沒載入完成');
+  }
+  try {
+    fbApp = firebase.initializeApp(FIREBASE_CONFIG);
+  } catch (e) {
+    // 已經初始化過(熱重載或重複呼叫)
+    fbApp = firebase.app();
+  }
+  fbDb = firebase.database();
+  fbStateRef = fbDb.ref('appState/' + STORE_KEY);
+  if (!fbStateRef) {
+    throw new Error('無法建立資料庫參照,請檢查 databaseURL');
+  }
+}
+
+// 等待 Firebase SDK 載入完成(最多 5 秒)
+async function waitForFirebaseSDK() {
+  const maxWait = 5000;
+  const interval = 100;
+  let waited = 0;
+  while (waited < maxWait) {
+    if (typeof firebase !== 'undefined' && firebase.initializeApp && firebase.database) {
+      return true;
+    }
+    await new Promise(r => setTimeout(r, interval));
+    waited += interval;
+  }
+  return false;
+}
+
 async function loadState() {
   try {
-    const result = await window.storage.get(STORE_KEY, true);
-    if (result && result.value) {
-      const parsed = JSON.parse(result.value);
-      // merge to ensure new fields exist
-      return Object.assign(defaultState(), parsed);
+    const snapshot = await fbStateRef.once('value');
+    const val = snapshot.val();
+    if (val) {
+      return Object.assign(defaultState(), val);
     }
   } catch (e) {
-    // key doesn't exist
+    console.error('讀取失敗', e);
+    toast('讀取失敗:' + e.message);
   }
   const ds = defaultState();
   await saveState(ds);
   return ds;
 }
 
-async function saveState(state) {
+// 移除物件中所有 undefined 值(Firebase 不接受 undefined)
+function cleanForFirebase(obj) {
+  if (obj === null || obj === undefined) return null;
+  if (Array.isArray(obj)) return obj.map(cleanForFirebase);
+  if (typeof obj !== 'object') return obj;
+  const cleaned = {};
+  for (const k in obj) {
+    if (obj[k] !== undefined) {
+      cleaned[k] = cleanForFirebase(obj[k]);
+    }
+  }
+  return cleaned;
+}
+
+async function saveState(stateToSave) {
   try {
-    await window.storage.set(STORE_KEY, JSON.stringify(state), true);
+    setSyncStatus('saving');
+    isApplyingRemote = true;
+    await fbStateRef.set(cleanForFirebase(stateToSave));
+    setTimeout(() => { isApplyingRemote = false; }, 300);
+    setSyncStatus('saved');
   } catch (e) {
     console.error('儲存失敗', e);
+    isApplyingRemote = false;
+    setSyncStatus('error');
     toast('儲存失敗:' + e.message);
+  }
+}
+
+// 監聽其他使用者對資料的變更,自動更新本機畫面
+function startRealtimeSync() {
+  fbStateRef.on('value', snapshot => {
+    if (isApplyingRemote) return;
+    const val = snapshot.val();
+    if (!val) return;
+    // 與本機 state 比較,如果不同則更新並重畫
+    const remoteJson = JSON.stringify(val);
+    const localJson = JSON.stringify(state);
+    if (remoteJson !== localJson) {
+      state = Object.assign(defaultState(), val);
+      // 不要在使用者正在打字時打斷 (簡單檢查:active element 是否為 input)
+      const ae = document.activeElement;
+      const isTyping = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
+      if (!isTyping) {
+        render();
+      }
+    }
+  });
+}
+
+// Sync status indicator
+function setSyncStatus(status) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  el.classList.remove('sync-saving', 'sync-saved', 'sync-error');
+  if (status === 'saving') {
+    el.classList.add('sync-saving');
+    el.textContent = '⟳ 儲存中…';
+  } else if (status === 'saved') {
+    el.classList.add('sync-saved');
+    el.textContent = '✓ 已同步';
+    setTimeout(() => { if (el.classList.contains('sync-saved')) el.textContent = '● 已連線'; }, 1500);
+  } else if (status === 'error') {
+    el.classList.add('sync-error');
+    el.textContent = '⚠ 同步失敗';
   }
 }
 
@@ -1731,6 +1863,7 @@ function renderHeader(title, subtitle, withLogout=false) {
         <div class="brand-sub">${title} · ${subtitle}</div>
       </div>
       <div class="session-info">
+        <span id="syncStatus" class="sync-saved">● 已連線</span>
         <span>${new Date().toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'})}</span>
         ${withLogout ? '<button data-action="logout">返回</button>' : ''}
       </div>
@@ -4264,6 +4397,17 @@ function escapeHtml(str) {
 // INIT
 // =========================================================================
 (async function init() {
+  try {
+    const sdkReady = await waitForFirebaseSDK();
+    if (!sdkReady) {
+      throw new Error('Firebase SDK 載入逾時 — 請檢查網路或防火牆是否擋住 gstatic.com');
+    }
+    initFirebase();
+  } catch (e) {
+    document.getElementById('app').innerHTML = `<div style="padding:60px;text-align:center;color:#8b2e1f;font-family:sans-serif;"><h2>無法連線到 Firebase</h2><p style="font-size:16px;margin:20px 0;">${e.message}</p><p style="color:#888;margin-top:20px;font-size:13px;">請開 F12 主控台看詳細錯誤,或聯繫管理者</p></div>`;
+    console.error('Firebase 初始化失敗', e);
+    return;
+  }
   state = await loadState();
   // 檢查 URL 是否帶 ?emp=員工ID,有的話直接進員工填寫頁
   const params = new URLSearchParams(window.location.search);
@@ -4275,6 +4419,8 @@ function escapeHtml(str) {
     }
   }
   render();
+  // 啟動即時同步監聽
+  startRealtimeSync();
 })();
 </script>
 </body>
