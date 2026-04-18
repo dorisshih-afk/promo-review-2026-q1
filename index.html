@@ -743,8 +743,8 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
 
 /* ================== MULTI-LINE DETAIL (Bug 2: 可多列細項) ================== */
 .detail-multi { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-.detail-row { display: flex; gap: 6px; align-items: stretch; }
-.detail-row > input[type="text"] { flex: 1; min-width: 0; }
+.detail-multi-row { display: flex; gap: 6px; align-items: stretch; }
+.detail-multi-row > input[type="text"] { flex: 1; min-width: 0; }
 .detail-row-remove {
   flex: 0 0 auto;
   width: 32px;
@@ -783,7 +783,7 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
 .detail-row-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 每列加月份輸入欄(Bug 3: 發生年月) */
-.detail-row > input[type="month"] {
+.detail-multi-row > input[type="month"] {
   flex: 0 0 auto;
   width: 140px;
   background: var(--bg);
@@ -793,8 +793,8 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
   font-size: 12px;
   color: var(--ink);
 }
-.detail-row > input[type="month"]:focus { outline: none; border-color: var(--ink); }
-.detail-row > input[type="month"]:disabled {
+.detail-multi-row > input[type="month"]:focus { outline: none; border-color: var(--ink); }
+.detail-multi-row > input[type="month"]:disabled {
   background: transparent; opacity: 0.6; cursor: not-allowed;
 }
 .detail-row-err {
@@ -3725,7 +3725,7 @@ function attachHandlers() {
     });
     if (disable) {
       // 只留一列,避免重新啟用時殘留多列空白
-      const rows = container.querySelectorAll('.detail-row');
+      const rows = container.querySelectorAll('.detail-multi-row');
       for (let i = 1; i < rows.length; i++) rows[i].remove();
     }
   }
@@ -3886,7 +3886,7 @@ async function handleAction(e) {
       const placeholder = addBtn.dataset.placeholder || '';
       const tmp = document.createElement('div');
       tmp.innerHTML = `
-        <div class="detail-row">
+        <div class="detail-multi-row">
           <input type="text" class="${className}" ${attrs} value="" placeholder="${escapeHtml(placeholder)}">
           <input type="month" class="${className}-ym" ${attrs} value="" title="發生年月 (YYYY-MM)">
           <button type="button" class="detail-row-remove" data-action="detail-row-remove" title="刪除此列">✕</button>
@@ -3904,11 +3904,11 @@ async function handleAction(e) {
     }
     case 'detail-row-remove': {
       const rmBtn = e.currentTarget;
-      const row = rmBtn.closest('.detail-row');
+      const row = rmBtn.closest('.detail-multi-row');
       const container = row && row.parentElement;  // .detail-multi
       if (!row || !container) break;
       // 至少保留一列:如果這是最後一列就清空而不移除
-      const rowsLeft = container.querySelectorAll('.detail-row').length;
+      const rowsLeft = container.querySelectorAll('.detail-multi-row').length;
       if (rowsLeft <= 1) {
         const inp = row.querySelector('input[type="text"]');
         if (inp) inp.value = '';
@@ -4165,7 +4165,7 @@ function collectAndValidateEmpForm() {
   // 檢查每列 single 細項
   document.querySelectorAll('.form-items .detail-multi').forEach(container => {
     const itemId = container.dataset.itemId || '';
-    container.querySelectorAll('.detail-row').forEach(row => {
+    container.querySelectorAll('.detail-multi-row').forEach(row => {
       const txt = row.querySelector('input[type="text"]');
       const ym = row.querySelector('input[type="month"]');
       const name = txt ? (txt.value || '').trim() : '';
@@ -4216,7 +4216,7 @@ async function collectAndSaveEmpForm(newStatus) {
   // 每列只屬於一個 itemId 或 optId(視 detail-multi 容器而定)
   document.querySelectorAll('.form-items .detail-multi').forEach(container => {
     const rows = [];
-    container.querySelectorAll('.detail-row').forEach(row => {
+    container.querySelectorAll('.detail-multi-row').forEach(row => {
       const txt = row.querySelector('input.emp-detail, input.emp-cert-detail');
       if (!txt) return;
       const ym = row.querySelector('input[type="month"]');
@@ -4567,7 +4567,7 @@ async function handleSaveBonusEmp(empId) {
     if (!firstTxt) return;
     if (firstTxt.dataset.bonusEmp !== empId) return;
     const rows = [];
-    container.querySelectorAll('.detail-row').forEach(row => {
+    container.querySelectorAll('.detail-multi-row').forEach(row => {
       const txt = row.querySelector('input.bonus-detail, input.bonus-cert-detail');
       if (!txt) return;
       const ym = row.querySelector('input[type="month"]');
@@ -4930,7 +4930,7 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
     // 只在「使用者有填 name 但 occurredAt 有問題」時顯示紅字(避免空列也飄紅)
     const showErr = err && (d.name || d.occurredAt);
     return `
-    <div class="detail-row">
+    <div class="detail-multi-row">
       <input type="text" class="${className}" ${dataAttrs} value="${escapeHtml(d.name)}" placeholder="${escapeHtml(placeholder)}" ${disAttr}>
       <input type="month" class="${className}-ym" ${dataAttrs} value="${escapeHtml(d.occurredAt)}" ${disAttr} title="發生年月 (YYYY-MM)">
       <button type="button" class="detail-row-remove" data-action="detail-row-remove" title="刪除此列" ${disAttr}>✕</button>
