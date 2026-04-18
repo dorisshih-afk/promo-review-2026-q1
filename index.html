@@ -3312,6 +3312,7 @@ function renderEmpSubmissionRow(emp, status) {
         ${status === 'submitted' ? `<button class="btn small" data-action="open-review" data-id="${emp.id}">開始審核</button>` : ''}
         ${status === 'reviewed' ? `<button class="btn secondary small" data-action="open-review" data-id="${emp.id}">查看 / 重新審核</button>` : ''}
         ${status === 'draft' ? `<button class="btn secondary small" data-action="open-review" data-id="${emp.id}">查看草稿</button>` : ''}
+        ${status === 'draft' ? `<button class="btn danger small" data-action="delete-submission" data-id="${emp.id}">刪除草稿</button>` : ''}
         ${status !== 'draft' ? `<button class="btn danger small" data-action="reopen-submission" data-id="${emp.id}">退回給員工</button>` : ''}
       </div>
     </div>
@@ -3995,6 +3996,9 @@ async function handleAction(e) {
     case 'reopen-submission':
       await handleReopenSubmission(id);
       break;
+    case 'delete-submission':
+      await handleDeleteSubmission(id);
+      break;
     case 'select-employee':
       view.payload.employeeId = id;
       render();
@@ -4475,6 +4479,22 @@ async function handleReopenSubmission(empId) {
   }
   await saveState(state);
   toast('已退回給員工');
+  render();
+}
+
+async function handleDeleteSubmission(empId) {
+  const sub = state.empSubmissions?.[empId];
+  if (!sub) return;
+  const emp = state.employees.find(e => e.id === empId);
+  // 這個 handler 目前只從「編輯中」列表進來,所以是草稿。保險再擋一下。
+  if (sub.status !== 'draft') {
+    toast('只能刪除草稿狀態的申請;已提交/已審核請用「退回給員工」');
+    return;
+  }
+  if (!confirm(`確定刪除 ${emp?.name || empId} 的申請草稿?\n這個動作無法復原。員工下次進入連結會看到全空的表單。`)) return;
+  delete state.empSubmissions[empId];
+  await saveState(state);
+  toast('已刪除草稿');
   render();
 }
 
