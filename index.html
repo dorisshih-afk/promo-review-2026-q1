@@ -1850,6 +1850,22 @@ function getEmployeeTech(emp) {
   return cat ? (cat.tech || cat.name) : '';
 }
 
+// 把員工分成兩個技術組(BIOS/EC 合組、Driver 單組)供排名切換用
+// 回傳 'bios_ec' | 'driver' | 'other'
+function getEmployeeTechGroup(emp) {
+  const tech = getEmployeeTech(emp);
+  if (tech === 'BIOS' || tech === 'EC') return 'bios_ec';
+  if (tech === 'Driver') return 'driver';
+  return 'other';
+}
+
+// 技術組顯示名
+const TECH_GROUP_LABELS = {
+  bios_ec: 'BIOS + EC',
+  driver: 'Driver (SA)',
+  other: '其他',
+};
+
 // 顯示用部門名稱:把括號(主管名)拿掉
 function displayDept(dept) {
   if (!dept) return '';
@@ -2577,6 +2593,7 @@ function renderStatsTab() {
   // 兩個獨立開關,預設皆關(= 原本的 'raw' 模式)
   const trimMode = !!view.payload?.trimMode;
   const bonusMode = !!view.payload?.bonusMode;
+  const techSplit = !!view.payload?.techSplit;
 
   // 應評分數 = 每位員工 × 該員工的可評主管數
   let expectedReviews = 0;
@@ -2664,6 +2681,9 @@ function renderStatsTab() {
         <button class="mode-toggle ${bonusMode ? 'on' : ''}" data-action="toggle-bonus-mode" title="加上 Extra Contribution 加分(管理者於後台設定)">
           <span class="toggle-indicator">${bonusMode ? '✓' : ''}</span>含加分
         </button>
+        <button class="mode-toggle ${techSplit ? 'on' : ''}" data-action="toggle-tech-split" title="將 BIOS+EC 與 Driver(SA) 分開排名,仍按 Band 分組">
+          <span class="toggle-indicator">${techSplit ? '✓' : ''}</span>技術分組
+        </button>
       </div>
       <div class="mode-switcher-desc">
         ${(!trimMode && !bonusMode) ? '※ 原始平均:各主管的所有評分皆計入,未做任何排除、未含加分' : ''}
@@ -2674,6 +2694,60 @@ function renderStatsTab() {
     </div>
 
     ${rows.length === 0 ? '<div class="empty">尚無員工資料</div>' : (() => {
+      // 子渲染:一張排名表(給定一組 rows 和標題)
+      const renderRankTable = (tableRows, subtitle) => {
+        const sorted = [...tableRows].sort((a, b) => {
+          if (a.avg === null && b.avg === null) return 0;
+          if (a.avg === null) return 1;
+          if (b.avg === null) return -1;
+          return b.avg - a.avg;
+        });
+        return `
+          ${subtitle ? `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-soft);margin:14px 0 6px;padding:4px 8px;background:rgba(139,46,31,0.04);border-left:2px solid var(--accent-soft);">${escapeHtml(subtitle)} · ${sorted.length} 位</div>` : ''}
+          <table class="results">
+            <thead>
+              <tr>
+                <th style="width:40px;">名次</th>
+                <th>員工</th>
+                <th>英文名</th>
+                <th style="width:70px;">技術</th>
+                <th>單位</th>
+                <th class="num">${bonusMode ? '加分後總分' : '平均總分'}</th>
+                <th class="num">平均單項</th>
+                <th class="num" style="width:60px;">加分</th>
+                <th class="num">評分人數</th>
+                <th style="width:90px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sorted.map((r, i) => {
+                const detailId = 'detail_' + r.emp.id;
+                const judgeBase = computeJudgeBase(r, trimMode);
+                const dimAvgForJudge = judgeBase !== null && state.dimensions.length > 0 ? judgeBase / state.dimensions.length : null;
+                const disqualified = dimAvgForJudge !== null && dimAvgForJudge < 4;
+                return `
+                  <tr class="${disqualified ? 'disqualified-row' : ''}">
+                    <td class="mono" style="color:var(--ink-muted);">${(i+1).toString().padStart(2,'0')}</td>
+                    <td class="name">${escapeHtml(r.emp.name)}${disqualified ? '<span class="disqualified-tag">不符資格</span>' : ''}</td>
+                    <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);">${escapeHtml(r.emp.enName || '')}</td>
+                    <td><span class="tech-tag">${escapeHtml(getEmployeeTech(r.emp))}</span></td>
+                    <td style="color:var(--ink-muted);">${escapeHtml(displayDept(r.emp.dept))}</td>
+                    <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && trimMode ? '<span class="trim-tag">已排除</span>' : ''}${bonusMode && r.bonus > 0 ? '<span class="bonus-tag">+' + r.bonus + '</span>' : ''}</td>
+                    <td class="num ${disqualified ? 'disqualified-num' : ''}">${fmt(dimAvgForJudge, 2)}</td>
+                    <td class="num" style="color:${r.bonus > 0 ? 'var(--gold)' : 'var(--ink-muted)'};font-weight:${r.bonus > 0 ? '600' : '400'};">${r.bonus > 0 ? '+' + r.bonus : '—'}</td>
+                    <td class="num">${r.count} / ${r.eligibleMgrCount}</td>
+                    <td><button class="detail-toggle" data-action="toggle-detail" data-target="${detailId}">展開</button></td>
+                  </tr>
+                  <tr class="detail-row hidden" id="${detailId}">
+                    <td colspan="10"><div class="detail-content">${renderEmpDetail(r.emp)}</div></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        `;
+      };
+
       // group by current band
       const bandGroups = {};
       rows.forEach(r => {
@@ -2689,6 +2763,19 @@ function renderStatsTab() {
       return sortedBands.map(band => {
         const groupRows = bandGroups[band];
         const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
+        let tablesHtml;
+        if (!techSplit) {
+          tablesHtml = renderRankTable(groupRows, null);
+        } else {
+          // 按技術組切:bios_ec → driver → other(other 只有在有員工時才顯示)
+          const buckets = { bios_ec: [], driver: [], other: [] };
+          groupRows.forEach(r => { buckets[getEmployeeTechGroup(r.emp)].push(r); });
+          const order = ['bios_ec', 'driver', 'other'];
+          tablesHtml = order
+            .filter(key => buckets[key].length > 0)
+            .map(key => renderRankTable(buckets[key], TECH_GROUP_LABELS[key]))
+            .join('');
+        }
         return `
           <div class="band-group">
             <div class="band-header">
@@ -2697,50 +2784,9 @@ function renderStatsTab() {
                 <span class="band-arrow">→</span>
                 <span class="band-to">Band ${targetBand}</span>
               </div>
-              <div class="band-meta">${groupRows.length} 位候選人</div>
+              <div class="band-meta">${groupRows.length} 位候選人${techSplit ? ' · 已依技術分組' : ''}</div>
             </div>
-            <table class="results">
-              <thead>
-                <tr>
-                  <th style="width:40px;">名次</th>
-                  <th>員工</th>
-                  <th>英文名</th>
-                  <th style="width:70px;">技術</th>
-                  <th>單位</th>
-                  <th class="num">${bonusMode ? '加分後總分' : '平均總分'}</th>
-                  <th class="num">平均單項</th>
-                  <th class="num" style="width:60px;">加分</th>
-                  <th class="num">評分人數</th>
-                  <th style="width:90px;"></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${groupRows.map((r, i) => {
-                  const detailId = 'detail_' + r.emp.id;
-                  // 資格判斷一律用「不含加分」的 base(隨 trim 開關變)
-                  const judgeBase = computeJudgeBase(r, trimMode);
-                  const dimAvgForJudge = judgeBase !== null && state.dimensions.length > 0 ? judgeBase / state.dimensions.length : null;
-                  const disqualified = dimAvgForJudge !== null && dimAvgForJudge < 4;
-                  return `
-                    <tr class="${disqualified ? 'disqualified-row' : ''}">
-                      <td class="mono" style="color:var(--ink-muted);">${(i+1).toString().padStart(2,'0')}</td>
-                      <td class="name">${escapeHtml(r.emp.name)}${disqualified ? '<span class="disqualified-tag">不符資格</span>' : ''}</td>
-                      <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);">${escapeHtml(r.emp.enName || '')}</td>
-                      <td><span class="tech-tag">${escapeHtml(getEmployeeTech(r.emp))}</span></td>
-                      <td style="color:var(--ink-muted);">${escapeHtml(displayDept(r.emp.dept))}</td>
-                      <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && trimMode ? '<span class="trim-tag">已排除</span>' : ''}${bonusMode && r.bonus > 0 ? '<span class="bonus-tag">+' + r.bonus + '</span>' : ''}</td>
-                      <td class="num ${disqualified ? 'disqualified-num' : ''}">${fmt(dimAvgForJudge, 2)}</td>
-                      <td class="num" style="color:${r.bonus > 0 ? 'var(--gold)' : 'var(--ink-muted)'};font-weight:${r.bonus > 0 ? '600' : '400'};">${r.bonus > 0 ? '+' + r.bonus : '—'}</td>
-                      <td class="num">${r.count} / ${r.eligibleMgrCount}</td>
-                      <td><button class="detail-toggle" data-action="toggle-detail" data-target="${detailId}">展開</button></td>
-                    </tr>
-                    <tr class="detail-row hidden" id="${detailId}">
-                      <td colspan="10"><div class="detail-content">${renderEmpDetail(r.emp)}</div></td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
+            ${tablesHtml}
           </div>
         `;
       }).join('');
@@ -3968,6 +4014,7 @@ async function handleAction(e) {
         tab: e.currentTarget.dataset.tab,
         trimMode: !!view.payload?.trimMode,
         bonusMode: !!view.payload?.bonusMode,
+        techSplit: !!view.payload?.techSplit,
       };
       render();
       break;
@@ -3977,6 +4024,10 @@ async function handleAction(e) {
       break;
     case 'toggle-bonus-mode':
       view.payload = { ...(view.payload || {}), bonusMode: !view.payload?.bonusMode };
+      render();
+      break;
+    case 'toggle-tech-split':
+      view.payload = { ...(view.payload || {}), techSplit: !view.payload?.techSplit };
       render();
       break;
     case 'toggle-bonus-emp':
@@ -4672,7 +4723,8 @@ function handleToggleDetail(targetId, btn) {
 function handleExportCsv() {
   const trimMode = !!view.payload?.trimMode;
   const bonusMode = !!view.payload?.bonusMode;
-  const rows = [['目前職等', '目標職等', '組內名次', 'Employee ID', '員工', '英文名', '技術', 'Email', '單位', '性別', '原始平均總分', '原始平均單項', '調整後平均總分', '調整後平均單項', 'Extra 加分', '加分後總分', '加分備註', '是否觸發排除', '評分人數', '應評人數', '升遷資格']];
+  const techSplit = !!view.payload?.techSplit;
+  const rows = [['目前職等', '目標職等', '技術組', '組內名次', 'Employee ID', '員工', '英文名', '技術', 'Email', '單位', '性別', '原始平均總分', '原始平均單項', '調整後平均總分', '調整後平均單項', 'Extra 加分', '加分後總分', '加分備註', '是否觸發排除', '評分人數', '應評人數', '升遷資格']];
 
   // 同時計算兩種平均
   const bandGroups = {};
@@ -4700,46 +4752,59 @@ function handleExportCsv() {
     return Number(b) - Number(a);
   });
 
+  const sortFn = (a, b) => {
+    const av = computeScoreByMode(a, trimMode, bonusMode);
+    const bv = computeScoreByMode(b, trimMode, bonusMode);
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return bv - av;
+  };
+
   sortedBands.forEach(band => {
-    // 排序依目前模式組合
-    const group = bandGroups[band].sort((a, b) => {
-      const av = computeScoreByMode(a, trimMode, bonusMode);
-      const bv = computeScoreByMode(b, trimMode, bonusMode);
-      if (av === null && bv === null) return 0;
-      if (av === null) return 1;
-      if (bv === null) return -1;
-      return bv - av;
-    });
     const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
     const dimCount = state.dimensions.length;
-    group.forEach((r, i) => {
-      // 資格判斷一律用「不含加分」的 base(隨 trim 開關變)
-      const judgeBase = computeJudgeBase(r, trimMode);
-      const dimAvgForJudge = judgeBase !== null && dimCount > 0 ? judgeBase / dimCount : null;
-      const eligible = dimAvgForJudge === null ? '—' : (dimAvgForJudge < 4 ? '不符資格' : '符合');
-      rows.push([
-        'Band ' + band,
-        'Band ' + targetBand,
-        i + 1,
-        r.emp.id,
-        r.emp.name,
-        r.emp.enName || '',
-        getEmployeeTech(r.emp),
-        r.emp.email || '',
-        r.emp.dept,
-        r.emp.gender || '',
-        r.rawAvg !== null ? r.rawAvg.toFixed(2) : '',
-        r.rawAvg !== null && dimCount > 0 ? (r.rawAvg/dimCount).toFixed(2) : '',
-        r.trimmedAvg !== null ? r.trimmedAvg.toFixed(2) : '',
-        r.trimmedAvg !== null && dimCount > 0 ? (r.trimmedAvg/dimCount).toFixed(2) : '',
-        r.bonus > 0 ? r.bonus.toFixed(1) : '',
-        r.withBonus !== null ? r.withBonus.toFixed(2) : '',
-        r.bonusNote || '',
-        r.trimmedAny ? '是' : '否',
-        r.count,
-        r.eligibleMgrCount,
-        eligible
-      ]);
+    // techSplit 下每個 band 拆兩/三組,各自排名;否則整個 band 一個組
+    let sections;
+    if (techSplit) {
+      const buckets = { bios_ec: [], driver: [], other: [] };
+      bandGroups[band].forEach(r => { buckets[getEmployeeTechGroup(r.emp)].push(r); });
+      sections = ['bios_ec', 'driver', 'other']
+        .filter(k => buckets[k].length > 0)
+        .map(k => ({ label: TECH_GROUP_LABELS[k], rows: buckets[k].sort(sortFn) }));
+    } else {
+      sections = [{ label: '全部', rows: bandGroups[band].sort(sortFn) }];
+    }
+    sections.forEach(sec => {
+      sec.rows.forEach((r, i) => {
+        const judgeBase = computeJudgeBase(r, trimMode);
+        const dimAvgForJudge = judgeBase !== null && dimCount > 0 ? judgeBase / dimCount : null;
+        const eligible = dimAvgForJudge === null ? '—' : (dimAvgForJudge < 4 ? '不符資格' : '符合');
+        rows.push([
+          'Band ' + band,
+          'Band ' + targetBand,
+          sec.label,
+          i + 1,
+          r.emp.id,
+          r.emp.name,
+          r.emp.enName || '',
+          getEmployeeTech(r.emp),
+          r.emp.email || '',
+          r.emp.dept,
+          r.emp.gender || '',
+          r.rawAvg !== null ? r.rawAvg.toFixed(2) : '',
+          r.rawAvg !== null && dimCount > 0 ? (r.rawAvg/dimCount).toFixed(2) : '',
+          r.trimmedAvg !== null ? r.trimmedAvg.toFixed(2) : '',
+          r.trimmedAvg !== null && dimCount > 0 ? (r.trimmedAvg/dimCount).toFixed(2) : '',
+          r.bonus > 0 ? r.bonus.toFixed(1) : '',
+          r.withBonus !== null ? r.withBonus.toFixed(2) : '',
+          r.bonusNote || '',
+          r.trimmedAny ? '是' : '否',
+          r.count,
+          r.eligibleMgrCount,
+          eligible
+        ]);
+      });
     });
   });
   downloadCsv(rows, '升遷評分總表.csv');
