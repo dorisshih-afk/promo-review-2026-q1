@@ -3871,6 +3871,7 @@ async function handleAction(e) {
       tmp.innerHTML = `
         <div class="detail-row">
           <input type="text" class="${className}" ${attrs} value="" placeholder="${escapeHtml(placeholder)}">
+          <input type="month" class="${className}-ym" ${attrs} value="" title="發生年月 (YYYY-MM)">
           <button type="button" class="detail-row-remove" data-action="detail-row-remove" title="刪除此列">✕</button>
         </div>
       `.trim();
