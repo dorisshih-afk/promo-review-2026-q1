@@ -2755,6 +2755,7 @@ function renderStatsTab() {
 
 function renderEmpDetail(emp) {
   const trimMode = view.payload?.trimMode || false;
+  const hideUnscored = !!view.payload?.hideUnscored;
 
   const totalsByMgr = state.managers.map(m => {
     const scores = getManagerScoreForEmployee(emp.id, m.id);
@@ -2801,8 +2802,24 @@ function renderEmpDetail(emp) {
   });
   const groupNames = Object.keys(groups);
 
+  // 「無評分權」的主管一律不顯示(沒資格評、沒資訊價值,只占版面)
+  const reviewable = totalsByMgr.filter(t => !t.cannotReview);
+  // 依開關過濾「有權但還沒評」的主管列
+  const hiddenCount = hideUnscored
+    ? reviewable.filter(t => t.total === null).length
+    : 0;
+  const visibleMgrs = hideUnscored
+    ? reviewable.filter(t => t.total !== null)
+    : reviewable;
+
   return `
-    <h4>${escapeHtml(emp.name)} · 各主管評分明細 ${trimMode ? '<span class="trim-tag">排除最高最低模式</span>' : ''}</h4>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+      <h4 style="margin:0;">${escapeHtml(emp.name)} · 各主管評分明細 ${trimMode ? '<span class="trim-tag">排除最高最低模式</span>' : ''}</h4>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-soft);cursor:pointer;letter-spacing:0.04em;">
+        <input type="checkbox" data-action="toggle-hide-unscored" ${hideUnscored ? 'checked' : ''} style="cursor:pointer;">
+        隱藏未評分主管${hideUnscored && hiddenCount > 0 ? ` <span style="color:var(--ink-muted);">(已隱藏 ${hiddenCount} 位)</span>` : ''}
+      </label>
+    </div>
     <table class="detail-table">
       <thead>
         <tr>
@@ -2815,7 +2832,7 @@ function renderEmpDetail(emp) {
         </tr>
       </thead>
       <tbody>
-        ${totalsByMgr.map(t => {
+        ${visibleMgrs.map(t => {
           if (t.cannotReview) {
             return `
               <tr style="opacity:0.45;">
@@ -4014,6 +4031,21 @@ async function handleAction(e) {
     case 'toggle-detail':
       handleToggleDetail(e.currentTarget.dataset.target, e.currentTarget);
       break;
+    case 'toggle-hide-unscored': {
+      // Flip state and re-render every currently-open detail panel in place,
+      // so展開狀態不被重置、使用者不失焦。
+      view.payload = { ...(view.payload || {}), hideUnscored: !view.payload?.hideUnscored };
+      document.querySelectorAll('tr.detail-row:not(.hidden) .detail-content').forEach(el => {
+        // recover the emp id from the parent tr's id like "detail_T150120"
+        const trId = el.closest('tr.detail-row')?.id || '';
+        const empId = trId.replace(/^detail_/, '');
+        const emp = state.employees.find(x => x.id === empId);
+        if (emp) el.innerHTML = renderEmpDetail(emp);
+      });
+      // 新插入的 checkbox 需要重新綁 click handler
+      attachHandlers();
+      break;
+    }
     case 'export-csv':
       handleExportCsv();
       break;
