@@ -3493,6 +3493,31 @@ function attachHandlers() {
     });
   });
 
+  // 員工端 emp-select 變動 → enable/disable 對應細項框
+  document.querySelectorAll('.emp-select').forEach(sel => {
+    sel.addEventListener('change', e => {
+      const itemId = e.target.dataset.item;
+      const detail = document.querySelector(`.emp-detail[data-detail-item="${itemId}"]`);
+      if (detail) {
+        const enabled = e.target.value && e.target.value !== 'none';
+        detail.disabled = !enabled;
+        if (!enabled) detail.value = '';
+      }
+    });
+  });
+
+  // 員工端 emp-multi (Certification) 勾選 → enable/disable 對應細項框
+  document.querySelectorAll('.emp-multi').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const optId = e.target.value;
+      const detail = document.querySelector(`.emp-cert-detail[data-cert-opt="${optId}"]`);
+      if (detail) {
+        detail.disabled = !e.target.checked;
+        if (!e.target.checked) detail.value = '';
+      }
+    });
+  });
+
   // review 調整下拉(select 變動)
   document.querySelectorAll('.review-adjust').forEach(sel => {
     sel.addEventListener('change', async e => {
