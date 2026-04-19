@@ -2399,6 +2399,137 @@ function renderManagerLoginPassword() {
   `;
 }
 
+// 主管打分頁參考用的「員工自填加分一覽」— 顯示員工填了什麼、目前狀態,
+// 但**不顯示預計分數**(避免主管的維度評分被加分數字干擾)
+function renderEmpBonusForReviewer(emp) {
+  const sub = getEmployeeSubmission(emp.id);
+  const status = sub.status;  // 'draft' | 'submitted' | 'reviewed' (預設值)
+  const data = sub.data || {};
+
+  // 沒有任何提交資料 — 員工根本還沒進過自填連結
+  const hasItems = data.items && Object.keys(data.items).length > 0;
+  const hasOthers = (data.others || 0) > 0 || (data.othersNote || '').trim();
+  const isEmpty = !hasItems && !hasOthers;
+
+  // 狀態 badge 樣式
+  let badgeBg, badgeColor, badgeText;
+  if (isEmpty) {
+    badgeBg = 'transparent'; badgeColor = 'var(--ink-muted)'; badgeText = '— 員工尚未填寫';
+  } else if (status === 'draft') {
+    badgeBg = 'rgba(176,141,58,0.15)'; badgeColor = 'var(--gold)'; badgeText = '草稿 · 員工編輯中';
+  } else if (status === 'submitted') {
+    badgeBg = 'rgba(139,46,31,0.12)'; badgeColor = 'var(--accent)'; badgeText = '已提交 · 待管理者審核';
+  } else if (status === 'reviewed') {
+    badgeBg = 'rgba(74,107,58,0.15)'; badgeColor = 'var(--green)'; badgeText = '已完成審核';
+  } else {
+    badgeBg = 'transparent'; badgeColor = 'var(--ink-muted)'; badgeText = '— 狀態未知';
+  }
+
+  // 每筆顯示用 helper:把 review 狀態翻成小 tag
+  const reviewTag = (review, item) => {
+    if (review === 'accepted') return '<span style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">✓ 接受</span>';
+    if (review === 'rejected') return '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">✗ 拒絕</span>';
+    if (review && typeof review === 'object' && review.adjustedTo && item) {
+      const adj = item.options.find(o => o.id === review.adjustedTo);
+      return `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">↔ 已調整為 ${escapeHtml(adj ? adj.label : '')}</span>`;
+    }
+    if (status === 'submitted' || status === 'reviewed') {
+      return '<span style="color:var(--ink-muted);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">⋯ 待審</span>';
+    }
+    return '';
+  };
+
+  // 把選了的項目整理出來
+  const lines = [];
+  if (hasItems) {
+    EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+      const sel = data.items[item.id];
+      if (item.type === 'single') {
+        if (!sel || sel === 'none') return;
+        const opt = item.options.find(o => o.id === sel);
+        if (!opt) return;
+        const review = sub.reviewedItems?.[item.id];
+        const detailArr = normalizeDetail(data.itemDetails?.[item.id]);
+        const detailHtml = detailArr.length > 0
+          ? detailArr.map(d => `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">• ${escapeHtml(d.name)}${d.occurredAt ? ` <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>` : ''}</div>`).join('')
+          : '<div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:2px;font-style:italic;">(未填具體說明)</div>';
+        lines.push(`
+          <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+            <div style="font-size:13px;color:var(--ink);">
+              <b>${escapeHtml(item.name)}</b>
+              <span style="color:var(--ink-soft);margin-left:6px;">— ${escapeHtml(opt.label)}</span>
+              ${reviewTag(review, item)}
+            </div>
+            ${detailHtml}
+          </div>
+        `);
+      } else {
+        // multi (cert)
+        const arr = Array.isArray(sel) ? sel : [];
+        if (arr.length === 0) return;
+        const certHtml = arr.map(optId => {
+          const opt = item.options.find(o => o.id === optId);
+          if (!opt) return '';
+          const review = sub.reviewedCertItems?.[optId];
+          const detailArr = normalizeDetail(data.certDetails?.[optId]);
+          const detailLine = detailArr.length > 0
+            ? detailArr.map(d => `${escapeHtml(d.name)}${d.occurredAt ? ` (${escapeHtml(d.occurredAt)})` : ''}`).join(' / ')
+            : '(未填具體說明)';
+          return `
+            <div style="font-size:12px;color:var(--ink-soft);padding-left:14px;margin-top:3px;">
+              • <b>${escapeHtml(opt.label)}</b>
+              <span style="color:var(--ink-muted);">— ${escapeHtml(detailLine)}</span>
+              ${reviewTag(review, null)}
+            </div>
+          `;
+        }).join('');
+        lines.push(`
+          <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+            <div style="font-size:13px;color:var(--ink);"><b>${escapeHtml(item.name)}</b> <span style="color:var(--ink-muted);">(${arr.length} 項)</span></div>
+            ${certHtml}
+          </div>
+        `);
+      }
+    });
+  }
+  // Others
+  if (hasOthers) {
+    const review = sub.reviewedItems?.others;
+    const note = (data.othersNote || '').trim() || '(未填說明)';
+    lines.push(`
+      <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+        <div style="font-size:13px;color:var(--ink);">
+          <b>Others</b>
+          <span style="color:var(--ink-soft);margin-left:6px;">— 其他特殊貢獻</span>
+          ${reviewTag(review, null)}
+        </div>
+        <div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">• ${escapeHtml(note)}</div>
+      </div>
+    `);
+  }
+
+  return `
+    <div style="background:var(--bg);border:1px solid var(--line-soft);padding:16px 20px;margin-bottom:24px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${isEmpty ? '0' : '8px'};flex-wrap:wrap;gap:8px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink-muted);">
+          員工自填 · Extra Contribution
+        </div>
+        <div style="display:inline-flex;align-items:center;padding:3px 10px;background:${badgeBg};color:${badgeColor};font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.08em;">
+          ${badgeText}
+        </div>
+      </div>
+      ${isEmpty
+        ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工未透過自填連結提交任何加分項目,或管理者尚未發出連結。</div>'
+        : `
+          <div style="font-size:10px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.06em;margin-bottom:4px;">
+            ※ 此處不顯示預計加分,僅作為您評分時的參考
+          </div>
+          ${lines.join('')}
+        `}
+    </div>
+  `;
+}
+
 function renderManagerScoring() {
   const mgrId = view.payload.managerId;
   const selectedEmpId = view.payload.employeeId || null;
@@ -2498,6 +2629,8 @@ function renderManagerScoring() {
           <span class="value" id="liveTotal">—<span class="max"> / ${(state.dimensions.length * 5).toFixed(1)}</span></span>
         </div>
       </div>
+
+      ${renderEmpBonusForReviewer(emp)}
 
       ${state.dimensions.length === 0 ? `
         <div class="empty">尚未設定評分維度,請通知管理者於後台新增。</div>
