@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.23';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.24';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -1582,7 +1582,7 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'ipp', name: 'IPP', type: 'single',
-    listingMode: true, ippMode: true, needsAttachmentHint: true,
+    listingMode: true, ippMode: true,
     note: '逐筆列舉每個 IPP;主管逐筆審核,接受的列權重加總後對應等級計分',
     options: [
       { id: 'none', label: '無', score: 0 },
@@ -2424,7 +2424,7 @@ function renderEmployeeForm() {
   const detailHints = {
     stamp: '請列出 KI 項目名稱',
     innovation: '請列出 Innovation Project / Proposal 名稱',
-    ipp: '請列出 IPP 名稱(對應數量)',
+    ipp: '請列出 IPP 名稱',
     conference: '會議 / 論文名稱',
     award: '獎項名稱、頒發單位',
     nfi: '請列出 NFI 或 POC 項目名稱',
@@ -2569,8 +2569,7 @@ function renderEmployeeForm() {
                         <span>本項無可列舉</span>
                       </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
-                        💡 每列「掛名人數」填本筆 IPP 共幾人共掛(獨自 = 1、2 人共掛 = 2、13 人 = 13)。主管會逐筆審核,接受的列權重加總對應等級計分。<br>
-                        <span style="color:var(--accent);">📧 請將對應的 IPP 證明圖檔 mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</span>
+                        💡 每列「掛名人數」填本筆 IPP 共幾人共掛(獨自 = 1、2 人共掛 = 2、13 人 = 13)。主管會逐筆審核,接受的列權重加總對應等級計分。
                       </div>
                     `;
                   })() : item.id === 'travel' ? (() => {
