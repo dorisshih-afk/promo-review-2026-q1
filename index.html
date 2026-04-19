@@ -1594,11 +1594,18 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'award', name: 'Award (Internal / External)', type: 'single', listingMode: true,
-    note: '逐筆列舉每個獎項並選等級;主管逐筆審核,接受的列加總計分',
+    note: '逐筆列舉每個獎項並選等級;內部獎項 ≥2 個封頂 +1.2;外部獎項每個各自 +5',
     options: [
       { id: 'internal', label: '公司內部獎項', score: 1 },
       { id: 'external', label: '公司外部獎項', score: 5 }
-    ]
+    ],
+    levelCaps: {
+      internal: [
+        { count: 1, score: 1 },
+        { count: 2, score: 1.2 }   // ≥ 2 個封頂 +1.2
+      ]
+      // external 未設 → 每筆各自加 5(無封頂)
+    }
   },
   {
     id: 'nfi', name: 'NFI / POC', type: 'single',
@@ -1904,19 +1911,37 @@ function getEmployeeBonus(empId) {
   let total = 0;
   const breakdown = [];  // [{itemName, label, score, detail}]
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
-    // listing-mode:從 itemDetails 每筆 accepted 列各自加分
+    // listing-mode:用 summarizeListedItem 算分(支援 levelCaps 封頂規則)
     if (item.listingMode) {
       const arr = normalizeDetail(data.itemDetails?.[item.id]);
-      arr.forEach(d => {
-        // applyReviewedSubmission 寫進 extraBonus 時應只保留 accepted;但安全起見此處也只算 accepted
-        if (d.reviewDecision && d.reviewDecision !== 'accepted') return;
-        const opt = item.options.find(o => o.id === d.level);
-        if (opt && opt.score > 0) {
-          total += opt.score;
-          const det = `${d.name}${d.occurredAt ? ' (' + d.occurredAt + ')' : ''}`;
-          breakdown.push({ itemName: item.name, label: opt.label, score: opt.score, detail: det });
-        }
-      });
+      // extraBonus 裡的資料已經只剩 accepted 列(由 applyReviewedSubmission 過濾),所以不用再傳 bandSince
+      const summary = summarizeListedItem(item, arr);
+      if (summary.acceptedScore > 0) {
+        total += summary.acceptedScore;
+        // breakdown:列出每個 level 的筆數 + 該 level 得分
+        Object.keys(summary.byLevel).forEach(lvl => {
+          const cnt = summary.byLevel[lvl].acceptedCount;
+          if (cnt === 0) return;
+          const opt = item.options.find(o => o.id === lvl);
+          if (!opt) return;
+          // 算這個 level 實際拿多少分(套 cap 規則)
+          const caps = item.levelCaps || {};
+          let lvlScore;
+          if (caps[lvl]) {
+            const entries = caps[lvl].slice().sort((a, b) => a.count - b.count);
+            lvlScore = 0;
+            for (const e of entries) { if (cnt >= e.count) lvlScore = e.score; }
+          } else {
+            lvlScore = opt.score * cnt;
+          }
+          breakdown.push({
+            itemName: item.name,
+            label: `${opt.label} × ${cnt}`,
+            score: lvlScore,
+            detail: arr.filter(d => d.level === lvl && d.reviewDecision !== 'rejected').map(d => d.name).join(', ')
+          });
+        });
+      }
       return;
     }
     const sel = data.items?.[item.id];
@@ -6858,16 +6883,20 @@ function migrateListedDetails(item, sub, data) {
 
 // 加總列舉項目分數
 // isPreview = true → 視所有 pending 為 accepted(讓員工看潛在最高分)
+// item.levelCaps 可選:{level_id: [{count, score}]} 表示該 level 按計數封頂計分
+//   e.g. Award internal: [{count:1,score:1},{count:2,score:1.2}] 表示 1 個 1 分、≥2 個 1.2 分
+//   未列 level 的走「每筆各自加總」預設行為
 function summarizeListedItem(item, detailArr, options = {}) {
-  const isPreview = !!options.preview;  // 員工頁顯示預估時用 true
-  const bandSince = options.bandSince || '';  // 若提供,early-than-band 列不算分(只算 ineligibleCount)
-  let acceptedScore = 0, acceptedCount = 0;
-  let pendingScore = 0, pendingCount = 0;
+  const isPreview = !!options.preview;
+  const bandSince = options.bandSince || '';
+  let acceptedCount = 0;
+  let pendingCount = 0;
   let rejectedCount = 0;
-  let ineligibleCount = 0;  // 早於 Band 期間的列
+  let ineligibleCount = 0;
   const byLevel = {};
+  // 先分類每筆:accepted / pending / rejected / ineligible
+  const classified = [];  // [{d, opt, dec, lvl}]
   (detailArr || []).forEach(d => {
-    // 期間檢查:若有 bandSince 且 occurredAt 早於它,直接視為 ineligible(不計分,也不歸入 accept/pending/reject)
     if (bandSince && d.occurredAt) {
       const ym = normalizeYearMonth(d.occurredAt);
       if (ym && compareYearMonth(ym, bandSince) < 0) {
@@ -6876,28 +6905,50 @@ function summarizeListedItem(item, detailArr, options = {}) {
       }
     }
     const opt = item.options.find(o => o.id === d.level);
-    const score = opt ? opt.score : 0;
     const dec = d.reviewDecision || 'pending';
     const lvl = d.level || 'unknown';
     if (!byLevel[lvl]) byLevel[lvl] = { acceptedCount: 0, pendingCount: 0, rejectedCount: 0 };
-    if (dec === 'accepted') {
-      acceptedScore += score;
-      acceptedCount++;
-      byLevel[lvl].acceptedCount++;
-    } else if (dec === 'rejected') {
-      rejectedCount++;
-      byLevel[lvl].rejectedCount++;
-    } else {
-      pendingScore += score;
-      pendingCount++;
-      byLevel[lvl].pendingCount++;
-    }
+    if (dec === 'accepted') { acceptedCount++; byLevel[lvl].acceptedCount++; }
+    else if (dec === 'rejected') { rejectedCount++; byLevel[lvl].rejectedCount++; }
+    else { pendingCount++; byLevel[lvl].pendingCount++; }
+    classified.push({ opt, dec, lvl });
   });
-  const totalScore = isPreview ? acceptedScore + pendingScore : acceptedScore;
+
+  // 計分:以 level 分組,每個 level 看是否有 cap
+  const caps = item.levelCaps || {};
+  // 分 level 累計 accepted / pending 筆數
+  const countByLevel = {};  // {lvl: {accepted, pending}}
+  classified.forEach(({ lvl, dec }) => {
+    if (!countByLevel[lvl]) countByLevel[lvl] = { accepted: 0, pending: 0 };
+    if (dec === 'accepted') countByLevel[lvl].accepted++;
+    else if (dec !== 'rejected') countByLevel[lvl].pending++;
+  });
+  const scoreFromCount = (lvl, cnt) => {
+    if (cnt <= 0) return 0;
+    if (caps[lvl]) {
+      // 找 count <= cnt 最大 count 對應的 score
+      const entries = caps[lvl].slice().sort((a, b) => a.count - b.count);
+      let s = 0;
+      for (const e of entries) { if (cnt >= e.count) s = e.score; }
+      return s;
+    }
+    // 沒 cap → 每筆加總
+    const opt = item.options.find(o => o.id === lvl);
+    return (opt ? opt.score : 0) * cnt;
+  };
+  let acceptedScore = 0;
+  let previewScore = 0;  // preview 模式 = accepted + pending
+  Object.keys(countByLevel).forEach(lvl => {
+    const { accepted, pending } = countByLevel[lvl];
+    acceptedScore += scoreFromCount(lvl, accepted);
+    previewScore += scoreFromCount(lvl, accepted + pending);
+  });
+
+  const totalScore = isPreview ? previewScore : acceptedScore;
   return {
     totalScore,
     acceptedScore, acceptedCount,
-    pendingScore, pendingCount,
+    pendingScore: previewScore - acceptedScore, pendingCount,
     rejectedCount,
     ineligibleCount,
     totalCount: acceptedCount + pendingCount + rejectedCount + ineligibleCount,
