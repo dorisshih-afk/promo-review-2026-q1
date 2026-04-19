@@ -7592,8 +7592,8 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
              value="${escapeHtml(peopleN)}"
              min="1" step="1" placeholder="掛名人數" title="本筆 IPP 共幾人共掛(獨自 = 1、3 人共掛填 3、13 人填 13)">
     ` : '';
-    // listing-mode level 下拉
-    const levelField = isListing ? `
+    // listing-mode level 下拉(countListingMode 時 levelOptions=null,不渲染)
+    const levelField = (isListing && levelOptions) ? `
       <select class="${className}-level" ${rowAttrs} ${disAttr} title="本筆等級">
         <option value="" ${!d.level ? 'selected' : ''}>-- 等級 --</option>
         ${levelOptions.map(o => `
@@ -7614,7 +7614,7 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
     `;
   }).join('');
   // 把 levelOptions 序列化到 add 按鈕讓動態新列也能渲染下拉
-  const levelOptionsJson = isListing ? escapeHtml(JSON.stringify(levelOptions)) : '';
+  const levelOptionsJson = (isListing && levelOptions) ? escapeHtml(JSON.stringify(levelOptions)) : '';
   return `
     <div class="detail-multi" data-item-id="${escapeHtml(itemId || '')}"${isListing ? ' data-listing="1"' : ''}>
       ${rows}
