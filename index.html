@@ -2372,7 +2372,7 @@ function renderEmployeeForm() {
       <div class="form-summary">
         <div class="form-summary-item">
           <div class="label">申請總分</div>
-          <div class="value">${appliedTotal.toFixed(1)}</div>
+          <div class="value" data-applied-total>${appliedTotal.toFixed(1)}</div>
         </div>
         ${isReviewed ? `
           <div class="form-summary-item">
@@ -4833,8 +4833,130 @@ function attachHandlers() {
       updateIppSummary();
       updateTravelSummary();
       document.querySelectorAll('.detail-multi[data-listing="1"]').forEach(c => updateListedSummary(c));
+      updateAppliedTotal();
     });
   }
+  // 員工頁頂部「申請總分」即時更新:任何加分相關欄位變動都觸發
+  // 用 event delegation 掛在 .form-items 上(所有細項、下拉、checkbox、others 都覆蓋)
+  const formItems = document.querySelector('.form-items');
+  if (formItems) {
+    formItems.addEventListener('input', updateAppliedTotal);
+    formItems.addEventListener('change', updateAppliedTotal);
+  }
+}
+
+// 即時重算員工頁頂部「申請總分」(包含 listing-mode 預估、IPP 自動算、cert 多選等)
+function updateAppliedTotal() {
+  const totalEl = document.querySelector('[data-applied-total]');
+  if (!totalEl) return;
+  const empId = view.payload?.empId;
+  if (!empId) return;
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) return;
+  const bandSinceEl = document.querySelector('.emp-band-since');
+  const bandSince = bandSinceEl ? normalizeYearMonth(bandSinceEl.value) : (emp.bandSinceYYYYMM || '');
+
+  let total = 0;
+  // 1) listing-mode:從 DOM 讀每列 level → 用 summarizeListedItem(preview) 加總
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (!item.listingMode) return;
+    const container = document.querySelector(`.detail-multi[data-item-id="${item.id}"][data-listing="1"]`);
+    if (!container) return;
+    const rows = [];
+    container.querySelectorAll('.detail-multi-row').forEach(row => {
+      const txt = row.querySelector('input.emp-detail');
+      const lvl = row.querySelector('select.emp-detail-level');
+      const ym = row.querySelector('input[type="month"]');
+      if (!txt) return;
+      const name = (txt.value || '').trim();
+      if (!name) return;
+      rows.push({
+        name,
+        level: lvl ? lvl.value : '',
+        occurredAt: ym ? normalizeYearMonth(ym.value) : ''
+      });
+    });
+    const summary = summarizeListedItem(item, rows, { preview: true, bandSince });
+    total += summary.totalScore;
+  });
+
+  // 2) IPP 自動算等級:從 DOM 收 IPP details → computeIppLevelFromDetails → option.score
+  {
+    const container = document.querySelector('.detail-multi[data-item-id="ipp"]');
+    if (container) {
+      const rows = [];
+      container.querySelectorAll('.detail-multi-row').forEach(row => {
+        const txt = row.querySelector('input.emp-detail');
+        if (!txt) return;
+        const name = (txt.value || '').trim();
+        if (!name) return;
+        const ym = row.querySelector('input[type="month"]');
+        const winp = row.querySelector('input.emp-detail-weight');
+        rows.push({
+          name,
+          occurredAt: ym ? normalizeYearMonth(ym.value) : '',
+          weight: winp ? peopleNToWeight(winp.value) : ''
+        });
+      });
+      const ippItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === 'ipp');
+      if (ippItem) {
+        const { optionId } = computeIppLevelFromDetails(rows, bandSince);
+        const opt = ippItem.options.find(o => o.id === optionId);
+        if (opt) total += opt.score;
+      }
+    }
+  }
+
+  // 3) Travel:同 IPP 自動算
+  {
+    const container = document.querySelector('.detail-multi[data-item-id="travel"]');
+    if (container) {
+      const rows = [];
+      container.querySelectorAll('.travel-multi-row').forEach(row => {
+        const nameEl = row.querySelector('input.emp-travel-name');
+        const sEl = row.querySelector('input.emp-travel-start');
+        const eEl = row.querySelector('input.emp-travel-end');
+        const name = nameEl ? (nameEl.value || '').trim() : '';
+        const startDate = sEl ? (sEl.value || '').trim() : '';
+        const endDate = eEl ? (eEl.value || '').trim() : '';
+        if (!name && !startDate && !endDate) return;
+        rows.push({ name, startDate, endDate });
+      });
+      const travelItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === 'travel');
+      if (travelItem) {
+        const { optionId } = computeTravelLevelFromDetails(rows, bandSince, state.covidPeriod || {});
+        const opt = travelItem.options.find(o => o.id === optionId);
+        if (opt) total += opt.score;
+      }
+    }
+  }
+
+  // 4) 其他 single 下拉項目(STAMP 已是 listing 不在此)+ multi(cert)
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (item.listingMode) return;       // 上面已算
+    if (item.id === 'ipp' || item.id === 'travel') return;  // 上面已算
+    if (item.type === 'single') {
+      const sel = document.querySelector(`.emp-select[data-item="${item.id}"]`);
+      if (!sel || !sel.value || sel.value === 'none') return;
+      const opt = item.options.find(o => o.id === sel.value);
+      if (opt) total += opt.score;
+    } else {
+      // multi (cert)
+      document.querySelectorAll(`.emp-multi[data-item="${item.id}"]:checked`).forEach(cb => {
+        const opt = item.options.find(o => o.id === cb.value);
+        if (opt) total += opt.score;
+      });
+    }
+  });
+
+  // 5) Others 自填分數
+  const othersScore = document.querySelector('.emp-others[data-others="score"]');
+  if (othersScore) {
+    const v = parseFloat(othersScore.value);
+    if (!isNaN(v)) total += v;
+  }
+
+  totalEl.textContent = total.toFixed(1);
 }
 
 // 從目前 DOM 重新讀 IPP 細項與 bandSince,即時更新 summary box
