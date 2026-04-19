@@ -1579,7 +1579,9 @@ const EXTRA_CONTRIBUTION_ITEMS = [
     }
   },
   {
-    id: 'ipp', name: 'IPP Amount (VTT/NTICP Approved)', type: 'single',
+    id: 'ipp', name: 'IPP', type: 'single',
+    listingMode: true, ippMode: true, needsAttachmentHint: true,
+    note: '逐筆列舉每個 IPP;主管逐筆審核,接受的列權重加總後對應等級計分',
     options: [
       { id: 'none', label: '無', score: 0 },
       { id: 'lt05', label: '0.1 ≤ 數量 < 0.5', score: 1 },
@@ -1661,6 +1663,8 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'travel', name: 'Travel Support (Covid-19 期間)', type: 'single',
+    listingMode: true, travelMode: true,
+    note: '逐段列舉出差;主管逐筆審核,接受的段加總天數後對應等級計分',
     options: [
       { id: 'none', label: '無', score: 0 },
       { id: '30_59', label: '30-59 days', score: 1 },
@@ -1914,7 +1918,6 @@ function applyReviewedSubmission(empId) {
       const bandSince = state.employees.find(e => e.id === empId)?.bandSinceYYYYMM;
       const accepted = arr.filter(d => {
         if (d.reviewDecision !== 'accepted') return false;
-        // 額外保險:期間外的列即使被誤接受也不寫入
         if (bandSince && d.occurredAt) {
           const ym = normalizeYearMonth(d.occurredAt);
           if (ym && compareYearMonth(ym, bandSince) < 0) return false;
@@ -1923,6 +1926,20 @@ function applyReviewedSubmission(empId) {
       });
       if (accepted.length > 0) {
         result.itemDetails[item.id] = accepted;
+      }
+      // IPP 特例:從 accepted 細項的 weight 加總反推 level,寫進 items.ipp
+      if (item.id === 'ipp') {
+        const { optionId } = computeIppLevelFromDetails(arr, bandSince, { onlyAccepted: true });
+        if (optionId && optionId !== 'none') {
+          result.items.ipp = optionId;
+        }
+      }
+      // Travel 特例:從 accepted 段的天數加總反推 level,寫進 items.travel
+      if (item.id === 'travel') {
+        const { optionId } = computeTravelLevelFromDetails(arr, bandSince, state.covidPeriod || {}, { onlyAccepted: true });
+        if (optionId && optionId !== 'none') {
+          result.items.travel = optionId;
+        }
       }
       return;
     }
@@ -2518,9 +2535,8 @@ function renderEmployeeForm() {
                         <span>本項無可列舉</span>
                       </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
-                        💡 IPP 加分由系統自動判定:加總「期間內」每筆的權重 → 對應加分等級。<br>
-                        每列「掛名人數」填本筆 IPP 共幾人共掛(獨自完成 = 1、2 人共掛 = 2、13 人 = 13)。系統會自動換算權重。<br>
-                        ※ 期間內只要有 IPP,即使多人共掛使權重總和 < 0.1,仍會給最低保底加分(+1)。
+                        💡 每列「掛名人數」填本筆 IPP 共幾人共掛(獨自 = 1、2 人共掛 = 2、13 人 = 13)。主管會逐筆審核,接受的列權重加總對應等級計分。<br>
+                        <span style="color:var(--accent);">📧 請將對應的 IPP 證明圖檔 mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</span>
                       </div>
                     `;
                   })() : item.id === 'travel' ? (() => {
@@ -2676,7 +2692,7 @@ function renderEmployeeForm() {
                         (item.id === 'ipp' || item.listingMode ? false : isDisabledByNone) || isLocked,
                         item.id,
                         bandSince,
-                        item.listingMode && !item.countListingMode ? item.options : null
+                        item.listingMode && !item.countListingMode && !item.ippMode ? item.options : null
                       )
                   }
                 </div>
@@ -2725,8 +2741,9 @@ function renderEmployeeForm() {
       ${!isLocked ? `
         <div class="form-actions">
           <button class="btn secondary" data-action="emp-save-draft">儲存草稿</button>
-          <button class="btn" data-action="emp-submit">提交審核</button>
+          <button class="btn" data-action="emp-submit" ${!bandSince ? 'disabled title="請先填寫「當前 Band 起始年月」"' : ''}>提交審核</button>
         </div>
+        ${!bandSince ? '<div style="font-size:12px;color:var(--accent);margin-top:8px;text-align:right;">⚠ 請先於最上方填寫「當前 Band 起始年月」才能提交</div>' : ''}
       ` : ''}
     </div>
   `;
@@ -2903,7 +2920,7 @@ function renderEmpBonusForReviewer(emp) {
       if (item.id === 'ipp') {
         const detailArr = normalizeDetail(data.itemDetails?.ipp);
         if (detailArr.length === 0) return;  // 真的完全沒填 IPP 才跳過
-        const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM);
+        const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM, { onlyAccepted: true });
         const review = sub.reviewedItems?.ipp;
         // 每筆細項列 + 期間 tag
         const rowsHtml = detailArr.map(d => {
@@ -3393,7 +3410,7 @@ function renderStatsTab() {
                 // IPP 數量(僅顯示,不影響排序)— 只算員工自填的 itemDetails.ipp
                 const ippSub = getEmployeeSubmission(r.emp.id);
                 const ippDetails = normalizeDetail(ippSub.data?.itemDetails?.ipp);
-                const ippSum = ippDetails.length > 0 ? summarizeIpp(ippDetails, r.emp.bandSinceYYYYMM) : null;
+                const ippSum = ippDetails.length > 0 ? summarizeIpp(ippDetails, r.emp.bandSinceYYYYMM, { onlyAccepted: true }) : null;
                 return `
                   <tr class="${disqualified ? 'disqualified-row' : ''}">
                     <td class="mono" style="color:var(--ink-muted);">${(i+1).toString().padStart(2,'0')}</td>
@@ -3684,7 +3701,7 @@ function renderEmpBonusForAdmin(emp) {
     if (item.id === 'ipp') {
       const detailArr = normalizeDetail(data.itemDetails?.ipp);
       if (detailArr.length === 0) return;
-      const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM);
+      const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM, { onlyAccepted: true });
       const review = sub.reviewedItems?.ipp;
       const levelText = summary.totalCount === 0
         ? '無'
@@ -4305,6 +4322,7 @@ function renderReviewDetail(empId) {
           <h3 style="margin-bottom:4px;">${escapeHtml(emp.name)} · Extra Contribution 審核</h3>
           <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);letter-spacing:0.06em;">
             ${escapeHtml(emp.enName || '')} · Band ${emp.currentBand} → ${emp.currentBand + 1} · ${escapeHtml(getEmployeeTech(emp))}
+            ${emp.bandSinceYYYYMM ? ` · Band 起始:${escapeHtml(emp.bandSinceYYYYMM)}` : ' · <span style="color:var(--accent);">⚠ 未填 Band 起始年月</span>'}
           </div>
         </div>
         <div style="text-align:right;">
@@ -4375,15 +4393,42 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
       else decBadge = '<span style="color:var(--ink-muted);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;">⋯ 待審</span>';
       const dateStr = d.occurredAt ? d.occurredAt : '(未填月份)';
       const curReviewerScore = (typeof d.reviewerScore === 'number' && isFinite(d.reviewerScore)) ? d.reviewerScore : '';
+      // IPP 特例:顯示 weight + 期間 tag
+      let ippExtra = '';
+      if (item.ippMode) {
+        const w = parseFloat(d.weight);
+        const hasValidW = isFinite(w) && w > 0 && w <= 1;
+        const inBand = isIppInBandPeriod(d.occurredAt, emp.bandSinceYYYYMM);
+        const peopleDisp = hasValidW ? formatIppWeightDisplay(d.weight) : '未填掛名人數';
+        let tag = '';
+        if (!d.occurredAt) tag = '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;margin-left:6px;">⚠ 未填月份</span>';
+        else if (!inBand) tag = '<span style="color:var(--gold);font-family:\'JetBrains Mono\',monospace;font-size:10px;margin-left:6px;">ⓘ 期間外</span>';
+        else if (hasValidW) tag = '<span style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:10px;margin-left:6px;">✓ 計入</span>';
+        else tag = '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;margin-left:6px;">⚠ 缺權重</span>';
+        ippExtra = `<span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">${escapeHtml(peopleDisp)}</span>${tag}`;
+      }
+      // Travel 特例:顯示 startDate → endDate + 天數 + 期間 tag
+      let travelExtra = '';
+      let travelDateStr = dateStr;
+      if (item.travelMode) {
+        const days = calcTravelDays(d.startDate, d.endDate);
+        travelDateStr = (d.startDate && d.endDate) ? `${d.startDate} → ${d.endDate}` : '日期未填齊';
+        const eligible = isTravelEligible(d.startDate, d.endDate, emp.bandSinceYYYYMM, state.covidPeriod || {});
+        let tag = '';
+        if (eligible) tag = `<span style="color:var(--green);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:6px;">✓ 計入(${days} 天)</span>`;
+        else tag = `<span style="color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:6px;">⚠ 不計入(${days} 天)</span>`;
+        travelExtra = tag;
+      }
       return `
         <div class="listed-review-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-top:6px;background:var(--bg);border-left:3px solid ${dec === 'accepted' ? 'var(--green)' : (dec === 'rejected' ? 'var(--accent)' : 'var(--line-soft)')};">
           <div style="flex:1;min-width:0;">
             <div style="font-size:13px;color:var(--ink);">
-              <b>${escapeHtml(d.name)}</b>
-              ${item.countListingMode || item.reviewerScoring ? '' : `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">${escapeHtml(optLabel)} (+${optScore})</span>`}
-              ${item.reviewerScoring && curReviewerScore !== '' ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">+${curReviewerScore} 分</span>` : ''}
+              <b>${escapeHtml(d.name || '(未命名)')}</b>
+              ${item.countListingMode || item.reviewerScoring || item.ippMode || item.travelMode ? '' : `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">${escapeHtml(optLabel)} (+${optScore})</span>`}
+              ${item.reviewerScoring && curReviewerScore !== '' && dec !== 'rejected' ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">+${curReviewerScore} 分</span>` : ''}
+              ${ippExtra}${travelExtra}
             </div>
-            <div style="font-size:11px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">${escapeHtml(dateStr)} · ${decBadge}</div>
+            <div style="font-size:11px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">${escapeHtml(travelDateStr)} · ${decBadge}</div>
           </div>
           ${isDraft ? '' : `
             <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
@@ -4426,7 +4471,7 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
   if (item.id === 'ipp') {
     const detailArr = normalizeDetail(data.itemDetails?.ipp);
     if (detailArr.length === 0) return '';  // 真的完全沒填
-    const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM);
+    const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM, { onlyAccepted: true });
     const review = sub.reviewedItems?.ipp || 'pending';
     const isAdjusted = typeof review === 'object' && review.adjustedTo;
     const adjustedToId = isAdjusted ? review.adjustedTo : null;
@@ -5118,19 +5163,34 @@ function attachHandlers() {
         if (isFinite(n) && n >= 0) arr[rowIdx].reviewerScore = n;
       }
       sub.data.itemDetails[itemId] = arr;
+      // 只存 state,不 render(讓 ✓/✗ 按鈕能正常點擊而不被打斷)
       await saveState(state);
-      render();
     });
   });
-  // bandSince 改變也要重算(IPP / Travel / listing-mode 都會被影響)
+  // bandSince 改變也要重算(IPP / Travel / listing-mode 都會被影響)+ 切換提交按鈕
   const bandSinceEl = document.querySelector('.emp-band-since');
   if (bandSinceEl) {
+    const syncSubmitBtn = () => {
+      const val = (bandSinceEl.value || '').trim();
+      const submitBtn = document.querySelector('button[data-action="emp-submit"]');
+      if (submitBtn) {
+        if (val) {
+          submitBtn.removeAttribute('disabled');
+          submitBtn.removeAttribute('title');
+        } else {
+          submitBtn.setAttribute('disabled', '');
+          submitBtn.setAttribute('title', '請先填寫「當前 Band 起始年月」');
+        }
+      }
+    };
     bandSinceEl.addEventListener('change', () => {
       updateIppSummary();
       updateTravelSummary();
       document.querySelectorAll('.detail-multi[data-listing="1"]').forEach(c => updateListedSummary(c));
       updateAppliedTotal();
+      syncSubmitBtn();
     });
+    bandSinceEl.addEventListener('input', syncSubmitBtn);
   }
   // 員工頁頂部「申請總分」即時更新:任何加分相關欄位變動都觸發
   // 用 event delegation 掛在 .form-items 上(所有細項、下拉、checkbox、others 都覆蓋)
@@ -6193,18 +6253,20 @@ async function collectAndSaveEmpForm(newStatus) {
     const isListing = container.dataset.listing === '1';
     const containerItemId = container.dataset.itemId || '';
     // 為了在 collector 裡能保留每筆 reviewDecision,先讀現有 state 裡的細項以位置-或名稱-索引找回 reviewDecision
-    // 簡化策略:依 (name + occurredAt + level) 作為 key 找回原 reviewDecision
+    // 簡化策略:依 (name + occurredAt + level-or-weight) 作為 key 找回原 reviewDecision
     const existingByKey = {};
     if (isListing) {
       const arr = normalizeDetail(sub.data.itemDetails?.[containerItemId]);
       arr.forEach(d => {
-        const k = `${d.name}|${d.occurredAt}|${d.level || ''}`;
+        const keyPart = d.level || (d.weight ? `w${d.weight}` : '');
+        const k = `${d.name}|${d.occurredAt}|${keyPart}`;
         if (d.reviewDecision) existingByKey[k] = d.reviewDecision;
       });
     }
     // countListingMode 項目 ref(無 level 下拉)
     const containerItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === containerItemId);
     const isCountMode = containerItem && containerItem.countListingMode;
+    const isIppMode = containerItem && containerItem.ippMode;
     const rows = [];
     container.querySelectorAll('.detail-multi-row').forEach(row => {
       const txt = row.querySelector('input.emp-detail, input.emp-cert-detail');
@@ -6224,6 +6286,11 @@ async function collectAndSaveEmpForm(newStatus) {
         // 無 level 下拉 → 自動填 'listed'(item 只有一個 option)
         obj.level = 'listed';
         const k = `${obj.name}|${obj.occurredAt}|listed`;
+        obj.reviewDecision = existingByKey[k] || 'pending';
+      } else if (isIppMode) {
+        // IPP listingMode:無 level 但以 weight 作為 key 一部分
+        const keyPart = obj.weight ? `w${obj.weight}` : '';
+        const k = `${obj.name}|${obj.occurredAt}|${keyPart}`;
         obj.reviewDecision = existingByKey[k] || 'pending';
       }
       rows.push(obj);
@@ -6280,9 +6347,16 @@ async function collectAndSaveEmpForm(newStatus) {
     }
   }
 
-  // Travel 收集:.travel-multi-row 三個欄位 → {name, startDate, endDate}[]
+  // Travel 收集:.travel-multi-row 三個欄位 → {name, startDate, endDate, reviewDecision?}[]
   // 然後依 covidPeriod + bandSince 自動算 items.travel
   {
+    // 先讀舊的 itemDetails.travel 做 by-key lookup,讓同一段的 reviewDecision 保留
+    const prevTravel = normalizeTravelDetail(sub.data.itemDetails?.travel);
+    const existingByKey = {};
+    prevTravel.forEach(d => {
+      const k = `${d.name}|${d.startDate}|${d.endDate}`;
+      existingByKey[k] = d.reviewDecision || 'pending';
+    });
     const travelRows = [];
     document.querySelectorAll('.travel-multi-row').forEach(row => {
       const nameEl = row.querySelector('input.emp-travel-name');
@@ -6291,16 +6365,19 @@ async function collectAndSaveEmpForm(newStatus) {
       const name = nameEl ? (nameEl.value || '').trim() : '';
       const startDate = sEl ? (sEl.value || '').trim() : '';
       const endDate = eEl ? (eEl.value || '').trim() : '';
-      // 完全空白的列略過
       if (!name && !startDate && !endDate) return;
-      travelRows.push({ name, startDate, endDate });
+      const k = `${name}|${startDate}|${endDate}`;
+      travelRows.push({
+        name, startDate, endDate,
+        reviewDecision: existingByKey[k] || 'pending'
+      });
     });
     if (travelRows.length > 0) {
       sub.data.itemDetails.travel = travelRows;
     } else {
       delete sub.data.itemDetails.travel;
     }
-    // 自動算 items.travel
+    // 自動算 items.travel(員工端用所有細項算,主管審核後再用 onlyAccepted 重算)
     const empObj = state.employees.find(e => e.id === empId);
     const bandSince = empObj && empObj.bandSinceYYYYMM;
     const cp = state.covidPeriod || {};
@@ -6895,7 +6972,7 @@ function handleExportCsv() {
         // IPP 統計
         const ippSub = getEmployeeSubmission(r.emp.id);
         const ippDetails = normalizeDetail(ippSub.data?.itemDetails?.ipp);
-        const ippSum = ippDetails.length > 0 ? summarizeIpp(ippDetails, r.emp.bandSinceYYYYMM) : null;
+        const ippSum = ippDetails.length > 0 ? summarizeIpp(ippDetails, r.emp.bandSinceYYYYMM, { onlyAccepted: true }) : null;
         // Travel 統計
         const travelDetails = normalizeTravelDetail(ippSub.data?.itemDetails?.travel);
         const travelSum = travelDetails.length > 0 ? summarizeTravel(travelDetails, r.emp.bandSinceYYYYMM, state.covidPeriod || {}) : null;
@@ -7038,9 +7115,13 @@ function normalizeTravelDetail(v) {
     const name = (x.name == null ? '' : String(x.name)).trim();
     const startDate = (typeof x.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.startDate)) ? x.startDate : '';
     const endDate = (typeof x.endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.endDate)) ? x.endDate : '';
-    // 完全空(name + 兩個日期都沒)→ 略過
     if (!name && !startDate && !endDate) return null;
-    return { name, startDate, endDate };
+    const out = { name, startDate, endDate };
+    // 保留每段的 reviewDecision(Travel listingMode 後主管逐段審核)
+    if (x.reviewDecision === 'accepted' || x.reviewDecision === 'rejected' || x.reviewDecision === 'pending') {
+      out.reviewDecision = x.reviewDecision;
+    }
+    return out;
   }).filter(Boolean);
 }
 
@@ -7220,21 +7301,20 @@ function getIppWeight(detail) {
 //   1) 完全沒期間內 IPP → 'none'(不加分)
 //   2) 期間內有「至少 1 筆有效權重」但加總 < 0.1 → **保底** 'lt05' (+1) — 多人共掛保護
 //   3) 加總 ≥ 0.1 → 依區間對應(0.1 / 0.5 / 1 / 2 / 3 / >3)
-function computeIppLevelFromDetails(detailArr, bandSince) {
+function computeIppLevelFromDetails(detailArr, bandSince, options = {}) {
+  const onlyAccepted = !!options.onlyAccepted;
   let sumIn = 0;
-  let inWithWeightCount = 0;  // 期間內 + 有有效權重(> 0)的列數
+  let inWithWeightCount = 0;
   (detailArr || []).forEach(d => {
+    if (onlyAccepted && (d.reviewDecision || 'pending') !== 'accepted') return;
     if (isIppInBandPeriod(d.occurredAt, bandSince)) {
       const w = getIppWeight(d);
       sumIn += w;
       if (w > 0) inWithWeightCount++;
     }
   });
-  // 完全沒有期間內權重(可能是沒填 IPP、或填了但都沒填權重)→ 不加分
   if (inWithWeightCount === 0) return { optionId: 'none', sum: sumIn };
-  // 有期間內 IPP 但權重總和不足 0.1(極端共掛情境如 13 人 = 0.077)→ 保底 lt05
   if (sumIn < 0.1) return { optionId: 'lt05', sum: sumIn };
-  // 正常區間
   if (sumIn < 0.5) return { optionId: 'lt05', sum: sumIn };
   if (sumIn < 1)   return { optionId: 'lt1',  sum: sumIn };
   if (sumIn === 1) return { optionId: 'eq1',  sum: sumIn };
@@ -7243,10 +7323,20 @@ function computeIppLevelFromDetails(detailArr, bandSince) {
   return { optionId: 'gt3', sum: sumIn };
 }
 
-// IPP 統計用 — 回傳 { inCount, outCount, totalCount, inWeight, outWeight, levelOptionId, levelLabel, levelScore }
-function summarizeIpp(detailArr, bandSince) {
+// IPP 統計用 — 回傳 { inCount, outCount, totalCount, inWeight, outWeight, acceptedCount, pendingCount, rejectedCount, levelOptionId, levelLabel, levelScore }
+function summarizeIpp(detailArr, bandSince, options = {}) {
+  const onlyAccepted = !!options.onlyAccepted;
   let inCount = 0, outCount = 0, inWeight = 0, outWeight = 0;
+  let acceptedCount = 0, pendingCount = 0, rejectedCount = 0;
   (detailArr || []).forEach(d => {
+    const dec = d.reviewDecision || 'pending';
+    if (dec === 'accepted') acceptedCount++;
+    else if (dec === 'rejected') rejectedCount++;
+    else pendingCount++;
+    // rejected 不計入 weight / count
+    if (dec === 'rejected') return;
+    // onlyAccepted mode:pending 不算
+    if (onlyAccepted && dec !== 'accepted') return;
     const w = getIppWeight(d);
     if (isIppInBandPeriod(d.occurredAt, bandSince)) {
       inCount++;
@@ -7256,15 +7346,14 @@ function summarizeIpp(detailArr, bandSince) {
       outWeight += w;
     }
   });
-  // 取 ipp item def
   const ippItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === 'ipp');
-  const levelInfo = computeIppLevelFromDetails(detailArr, bandSince);
+  const levelInfo = computeIppLevelFromDetails(detailArr, bandSince, { onlyAccepted });
   const opt = ippItem ? ippItem.options.find(o => o.id === levelInfo.optionId) : null;
-  // round to 2 decimals for display
   const r2 = x => Math.round(x * 100) / 100;
   return {
     inCount, outCount, totalCount: inCount + outCount,
     inWeight: r2(inWeight), outWeight: r2(outWeight),
+    acceptedCount, pendingCount, rejectedCount,
     levelOptionId: levelInfo.optionId,
     levelLabel: opt ? opt.label : '',
     levelScore: opt ? opt.score : 0,
@@ -7347,6 +7436,17 @@ function migrateListedDetails(item, sub, data) {
     return table[lvl] || lvl;
   };
   const anyHasLevel = arr.some(d => d.level);
+  // IPP / Travel 特例:細項不該有 level,只保留每筆 reviewDecision
+  if (item.id === 'ipp' || item.id === 'travel') {
+    let fallbackReview = 'pending';
+    if (itemReview === 'accepted') fallbackReview = 'accepted';
+    else if (itemReview === 'rejected') fallbackReview = 'rejected';
+    else if (itemReview && typeof itemReview === 'object' && itemReview.adjustedTo) fallbackReview = 'accepted';
+    return arr.map(d => ({
+      ...d,
+      reviewDecision: d.reviewDecision || fallbackReview
+    }));
+  }
   if (anyHasLevel) {
     return arr.map(d => ({
       ...d,
@@ -7540,9 +7640,11 @@ function isTravelEligible(startDate, endDate, bandSince, covidPeriod) {
 //   120-149 → '120_149'
 //   150-179 → '150_179'
 //   ≥180 → '180plus'
-function computeTravelLevelFromDetails(detailArr, bandSince, covidPeriod) {
+function computeTravelLevelFromDetails(detailArr, bandSince, covidPeriod, options = {}) {
+  const onlyAccepted = !!options.onlyAccepted;
   let totalDays = 0;
   (detailArr || []).forEach(d => {
+    if (onlyAccepted && (d.reviewDecision || 'pending') !== 'accepted') return;
     if (isTravelEligible(d.startDate, d.endDate, bandSince, covidPeriod)) {
       totalDays += calcTravelDays(d.startDate, d.endDate);
     }
@@ -7556,12 +7658,19 @@ function computeTravelLevelFromDetails(detailArr, bandSince, covidPeriod) {
   return { optionId: '180plus', days: totalDays };
 }
 
-// 統計用 — 回傳 { eligibleCount, ineligibleCount, totalCount, eligibleDays, ineligibleDays, levelOptionId, levelLabel, levelScore }
-function summarizeTravel(detailArr, bandSince, covidPeriod) {
+function summarizeTravel(detailArr, bandSince, covidPeriod, options = {}) {
+  const onlyAccepted = !!options.onlyAccepted;
   let eligibleCount = 0, ineligibleCount = 0, eligibleDays = 0, ineligibleDays = 0;
+  let acceptedCount = 0, pendingCount = 0, rejectedCount = 0;
   (detailArr || []).forEach(d => {
+    const dec = d.reviewDecision || 'pending';
+    if (dec === 'accepted') acceptedCount++;
+    else if (dec === 'rejected') rejectedCount++;
+    else pendingCount++;
+    if (dec === 'rejected') return;
+    if (onlyAccepted && dec !== 'accepted') return;
     const days = calcTravelDays(d.startDate, d.endDate);
-    if (days <= 0) return;  // 完全無效的列不算
+    if (days <= 0) return;
     if (isTravelEligible(d.startDate, d.endDate, bandSince, covidPeriod)) {
       eligibleCount++;
       eligibleDays += days;
@@ -7571,11 +7680,12 @@ function summarizeTravel(detailArr, bandSince, covidPeriod) {
     }
   });
   const travelItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === 'travel');
-  const levelInfo = computeTravelLevelFromDetails(detailArr, bandSince, covidPeriod);
+  const levelInfo = computeTravelLevelFromDetails(detailArr, bandSince, covidPeriod, { onlyAccepted });
   const opt = travelItem ? travelItem.options.find(o => o.id === levelInfo.optionId) : null;
   return {
     eligibleCount, ineligibleCount, totalCount: eligibleCount + ineligibleCount,
     eligibleDays, ineligibleDays,
+    acceptedCount, pendingCount, rejectedCount,
     levelOptionId: levelInfo.optionId,
     levelLabel: opt ? opt.label : '',
     levelScore: opt ? opt.score : 0,
