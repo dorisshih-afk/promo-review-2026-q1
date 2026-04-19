@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.17';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.18';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2514,7 +2514,7 @@ function renderEmployeeForm() {
         <input type="month" class="emp-band-since" value="${escapeHtml(bandSince)}" ${isLocked ? 'disabled' : ''} placeholder="YYYY-MM">
         <div class="hint">
           ${bandSince
-            ? '此日期作為各加分項目「是否在本 Band 期間」的驗證基準。Certification 類型不受此限,以發生月份起兩年內為準。'
+            ? '此日期作為各加分項目「是否在本 Band 期間」的驗證基準。證照類型不受此限,各類證照依其自身有效期規定計算。'
             : '<span class="err">※ 請先填寫此欄位才能提交,且各加分項目的發生年月需 ≥ 此日期。</span>'}
         </div>
       </div>
