@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.15';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.17';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2137,9 +2137,41 @@ function displayDept(dept) {
 }
 
 // 該員工是否屬於該主管的自己部門
+// 部門代碼對應:從員工 dept 字串判斷代碼(SW1/SW2/EC/SA1/SA2)
+// 規則基於 dept 字串關鍵字,不依賴括號內主管名字(那只用於顯示)
+const DEPT_CODES = [
+  { code: 'SW1', label: 'SW1 · 軟體設計一部', matchDept: '軟體設計一部' },
+  { code: 'SW2', label: 'SW2 · 軟體設計二部', matchDept: '軟體設計二部' },
+  { code: 'EC',  label: 'EC · 平臺韌體開發部', matchDept: '韌體開發' },
+  { code: 'SA1', label: 'SA1 · 軟體應用設計一部', matchDept: '軟體應用設計一部' },
+  { code: 'SA2', label: 'SA2 · 軟體應用設計二部', matchDept: '軟體應用設計二部' }
+];
+
+function getEmpDeptCode(emp) {
+  if (!emp || !emp.dept) return '';
+  // 先比對更精準的(應用設計一/二部)再到泛用的
+  for (const d of DEPT_CODES) {
+    if (emp.dept.includes(d.matchDept)) return d.code;
+  }
+  return '';
+}
+
+// 把舊的 ownDeptKeyword(Wilbur/Doris/...)轉成部門代碼,用於向下相容
+// 若 mgr.ownDeptKeyword 已經是代碼(SW1 等)就直接回傳
+const LEGACY_KEYWORD_TO_CODE = {
+  'Wilbur': 'SW1', 'Doris': 'SW2', 'Roy': 'EC', 'Kegin': 'SA1', 'Dash': 'SA2'
+};
+function getMgrOwnDeptCode(mgr) {
+  if (!mgr || !mgr.ownDeptKeyword) return '';
+  const kw = String(mgr.ownDeptKeyword).trim();
+  if (DEPT_CODES.some(d => d.code === kw)) return kw;  // 已經是新代碼
+  return LEGACY_KEYWORD_TO_CODE[kw] || '';
+}
+
 function isOwnDept(emp, mgr) {
-  if (!mgr.ownDeptKeyword || !emp.dept) return false;
-  return emp.dept.includes('(' + mgr.ownDeptKeyword + ')');
+  const mgrCode = getMgrOwnDeptCode(mgr);
+  if (!mgrCode) return false;
+  return getEmpDeptCode(emp) === mgrCode;
 }
 
 // 該主管能否評分此員工
@@ -4632,14 +4664,6 @@ function renderEmployeesTab() {
 }
 
 function renderManagersTab() {
-  // 從現有員工的 dept 欄抓出括號內的部門識別字,供下拉選用
-  const deptKeywords = new Set();
-  state.employees.forEach(e => {
-    const dept = e.dept || '';
-    const match = dept.match(/[((]([^)\)]+)[))]/);
-    if (match && match[1]) deptKeywords.add(match[1].trim());
-  });
-  const sortedKeywords = Array.from(deptKeywords).sort();
   return `
     <div class="admin-section">
       <h3>新增主管</h3>
@@ -4648,18 +4672,14 @@ function renderManagersTab() {
         <input type="text" id="newMgrName" placeholder="例:Robby">
       </div>
       <div class="field">
-        <label>自己部門識別字(避嫌規避)</label>
+        <label>自己部門(避嫌規避)</label>
         <select id="newMgrOwnDept">
           <option value="">(無 · 跨部門大主管 / 額外評審)</option>
-          ${sortedKeywords.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
+          ${DEPT_CODES.map(d => `<option value="${d.code}">${escapeHtml(d.label)}</option>`).join('')}
         </select>
       </div>
       <div class="field">
         <label>可評分的部門類別</label>
-        <div style="margin-bottom:10px;">
-          <button class="btn secondary small" data-action="newmgr-preset-ss" type="button" title="一鍵勾選全部技術類別(SS · 台北軟體部門主管)">SS 台北軟體部門(勾選全部)</button>
-          <button class="btn secondary small" data-action="newmgr-preset-clear" type="button" style="margin-left:6px;">全部取消</button>
-        </div>
         <div class="cat-checkboxes">
           ${state.deptCategories.map(c => `
             <label class="cat-checkbox">
@@ -4676,11 +4696,9 @@ function renderManagersTab() {
 
       <div style="margin-top:18px;padding:14px 16px;background:var(--bg);border-left:3px solid var(--gold);font-size:12.5px;line-height:1.7;color:var(--ink-soft);">
         <b style="color:var(--ink);">常見設定範例</b><br>
-        <b>部門主管</b>(會避嫌):自己部門 = Wilbur,勾選可評技術領域<br>
-        <b>SS 台北軟體部門主管</b>(含 BIOS/EC/SA):自己部門 = 無,點「SS 台北軟體部門」快捷鈕<br>
+        <b>部門主管</b>(會避嫌):選自己部門代碼,勾選可評技術領域<br>
         <b>跨部門大主管(評全部)</b>:自己部門 = 無,部門類別 = 全部不勾<br>
-        <b>額外評審</b>(評技術領域內全部、不避嫌):自己部門 = 無,勾選對應技術領域<br>
-        &nbsp;&nbsp;例:BIOS 資深評審 → 無 + 勾「軟體設計 (BIOS)」+「韌體開發 (EC)」
+        <b>額外評審</b>(評技術領域內全部、不避嫌):自己部門 = 無,勾選對應技術領域
       </div>
 
       <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--line-soft);">
@@ -4699,7 +4717,11 @@ function renderManagersTab() {
                 <div class="info">
                   <div class="primary">
                     ${escapeHtml(m.name)}
-                    ${m.ownDeptKeyword ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--ink);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">${escapeHtml(m.ownDeptKeyword)} 部門</span>` : ''}
+                    ${(() => {
+                      const code = getMgrOwnDeptCode(m);
+                      if (!code) return '';
+                      return `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--ink);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">${escapeHtml(code)} 部門</span>`;
+                    })()}
                     ${catNames.map(n => `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--bg);color:var(--accent);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">${escapeHtml(n)}</span>`).join('')}
                     ${m.password ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;background:var(--green);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">已設定密碼</span>' : '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;background:var(--gold);color:var(--bg-paper);padding:2px 8px;letter-spacing:0.1em;margin-left:6px;">尚未設定密碼</span>'}
                   </div>
@@ -5748,12 +5770,6 @@ async function handleAction(e) {
     }
     case 'add-manager':
       await handleAddManager();
-      break;
-    case 'newmgr-preset-ss':
-      document.querySelectorAll('.newMgrCat').forEach(cb => { cb.checked = true; });
-      break;
-    case 'newmgr-preset-clear':
-      document.querySelectorAll('.newMgrCat').forEach(cb => { cb.checked = false; });
       break;
     case 'del-manager':
       await handleDeleteManager(id);
