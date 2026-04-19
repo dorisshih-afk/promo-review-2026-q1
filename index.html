@@ -1465,12 +1465,14 @@ table.results .score-cell {
 
 <div id="app" class="app"></div>
 <div id="toast" class="toast"></div>
+<div id="versionBadge" style="position:fixed;bottom:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(0,0,0,0.35);letter-spacing:0.04em;pointer-events:none;user-select:none;z-index:9999;">v.—</div>
 
 <script>
 // =========================================================================
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
+const APP_VERSION = '2026-04-19.4';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -7867,6 +7869,9 @@ function renderTravelDetailInputs(values, disabled, bandSince, covidPeriod) {
     }
   }
   render();
+  // 設定頁面右下角版本號(載入完成後顯示)
+  const vb = document.getElementById('versionBadge');
+  if (vb) vb.textContent = 'v.' + APP_VERSION;
   // 啟動即時同步監聽
   startRealtimeSync();
 })();
