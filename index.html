@@ -1891,13 +1891,22 @@ function getEmployeeBonus(empId) {
 // 根據 trim / bonus 兩個布林,從 row 裡算出要顯示/排序的 avg
 // row 預期至少有 { rawAvg, trimmedAvg, bonus } 三個欄位
 // 回傳 null 表示該員工尚未有分數(或 base 為 null)
+//
+// 計分公式:
+//   bonus 模式關 → 直接用 base(rawAvg 或 trimmedAvg)
+//   bonus 模式開 → base × 0.9 + bonusScore × 0.1(加權平均,降低加分項影響力)
+//                  注意:此公式會讓沒加分者的分數也降為 base × 0.9,
+//                  但相對排名與「平均單項 < 4 不符資格」的判定都不受影響
+//                  (judge base 走 computeJudgeBase,不被加權)
 function computeScoreByMode(row, trim, bonus) {
   const base = trim ? row.trimmedAvg : row.rawAvg;
   if (base === null || base === undefined) return null;
-  return bonus ? base + (row.bonus || 0) : base;
+  if (!bonus) return base;
+  return base * 0.9 + (row.bonus || 0) * 0.1;
 }
 
-// 給「資格判斷」用的 base 平均(不含加分,但會跟隨 trim 開關)
+// 給「資格判斷」用的 base 平均(不含加分、不被加權,但會跟隨 trim 開關)
+// 用此 base / dimensions.length 得「平均單項」,< 4 不符升遷資格
 function computeJudgeBase(row, trim) {
   return trim ? row.trimmedAvg : row.rawAvg;
 }
@@ -2323,11 +2332,11 @@ function renderEmployeeForm() {
                     else if (summary.levelLabel) levelText = summary.levelLabel;
                     else levelText = '無 (期間內權重不足 0.1)';
                     return `
-                      <div class="ipp-auto-summary">
+                      <div class="ipp-auto-summary" data-ipp-summary>
                         <span class="ipp-auto-label">自動判定</span>
-                        <span class="ipp-auto-level">${escapeHtml(levelText)}</span>
-                        <span class="ipp-auto-score">${summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分'}</span>
-                        <span class="ipp-auto-stats">
+                        <span class="ipp-auto-level" data-ipp-level>${escapeHtml(levelText)}</span>
+                        <span class="ipp-auto-score" data-ipp-score>${summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分'}</span>
+                        <span class="ipp-auto-stats" data-ipp-stats>
                           期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) ·
                           期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) ·
                           總 ${summary.totalCount} 筆
@@ -2957,8 +2966,8 @@ function renderStatsTab() {
       <div class="mode-switcher-desc">
         ${(!trimMode && !bonusMode) ? '※ 原始平均:各主管的所有評分皆計入,未做任何排除、未含加分' : ''}
         ${( trimMode && !bonusMode) ? '※ 去頭去尾:對每個維度,當該維度評分人數 ≥ 5 時,自動去除最高與最低分後再平均' : ''}
-        ${(!trimMode &&  bonusMode) ? '※ 原始 + 加分:以原始平均為基底,再加上 Extra Contribution 加分' : ''}
-        ${( trimMode &&  bonusMode) ? '※ 去頭去尾 + 加分:先去除最高最低再平均,然後加上 Extra Contribution 加分' : ''}
+        ${(!trimMode &&  bonusMode) ? '※ 原始 + 加分(90/10):排名分數 = 原始平均 × 0.9 + Extra Contribution × 0.1' : ''}
+        ${( trimMode &&  bonusMode) ? '※ 去頭去尾 + 加分(90/10):排名分數 = 去頭去尾平均 × 0.9 + Extra Contribution × 0.1' : ''}
       </div>
     </div>
 
@@ -3001,7 +3010,7 @@ function renderStatsTab() {
                     <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);">${escapeHtml(r.emp.enName || '')}</td>
                     <td><span class="tech-tag">${escapeHtml(getEmployeeTech(r.emp))}</span></td>
                     <td style="color:var(--ink-muted);">${escapeHtml(displayDept(r.emp.dept))}</td>
-                    <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && trimMode ? '<span class="trim-tag">已排除</span>' : ''}${bonusMode && r.bonus > 0 ? '<span class="bonus-tag">+' + r.bonus + '</span>' : ''}</td>
+                    <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && trimMode ? '<span class="trim-tag">已排除</span>' : ''}${bonusMode && r.bonus > 0 ? '<span class="bonus-tag" title="加分項已縮為 10%(原 +' + r.bonus + ' → 實際貢獻 +' + (r.bonus * 0.1).toFixed(2) + ')">+' + r.bonus + '×10%</span>' : ''}</td>
                     <td class="num ${disqualified ? 'disqualified-num' : ''}">${fmt(dimAvgForJudge, 2)}</td>
                     <td class="num" style="color:${r.bonus > 0 ? 'var(--gold)' : 'var(--ink-muted)'};font-weight:${r.bonus > 0 ? '600' : '400'};">${r.bonus > 0 ? '+' + r.bonus : '—'}</td>
                     <td class="num">${r.count} / ${r.eligibleMgrCount}</td>
@@ -4293,6 +4302,87 @@ function attachHandlers() {
       if (e.key === 'Enter') handleManagerSetPassword();
     });
   }
+
+  // IPP summary 即時重算:任何 IPP 細項裡的 input/change 變動都觸發
+  // 用 event delegation 掛在 document 上,動態新增的列也適用
+  document.querySelectorAll('.detail-multi[data-item-id="ipp"]').forEach(container => {
+    container.addEventListener('input', updateIppSummary);
+    container.addEventListener('change', updateIppSummary);
+  });
+  // bandSince 改變也要重算(影響「期間內 / 期間外」判定)
+  const bandSinceEl = document.querySelector('.emp-band-since');
+  if (bandSinceEl) {
+    bandSinceEl.addEventListener('change', updateIppSummary);
+  }
+}
+
+// 從目前 DOM 重新讀 IPP 細項與 bandSince,即時更新 summary box
+function updateIppSummary() {
+  const summaryEl = document.querySelector('[data-ipp-summary]');
+  if (!summaryEl) return;
+  const container = document.querySelector('.detail-multi[data-item-id="ipp"]');
+  if (!container) return;
+  // 讀目前 bandSince(可能員工剛改)
+  const bandSinceEl = document.querySelector('.emp-band-since');
+  const bandSince = bandSinceEl ? normalizeYearMonth(bandSinceEl.value) : '';
+  // 從 DOM 收 IPP 細項
+  const rows = [];
+  container.querySelectorAll('.detail-multi-row').forEach(row => {
+    const txt = row.querySelector('input.emp-detail');
+    if (!txt) return;
+    const name = (txt.value || '').trim();
+    if (!name) return;
+    const ym = row.querySelector('input[type="month"]');
+    const winp = row.querySelector('input.emp-detail-weight');
+    rows.push({
+      name,
+      occurredAt: ym ? normalizeYearMonth(ym.value) : '',
+      weight: winp ? winp.value : ''
+    });
+  });
+  const summary = summarizeIpp(rows, bandSince);
+  let levelText;
+  if (summary.totalCount === 0) levelText = '尚未填寫';
+  else if (summary.levelLabel) levelText = summary.levelLabel;
+  else levelText = '無 (期間內權重不足 0.1)';
+
+  const lvlEl = summaryEl.querySelector('[data-ipp-level]');
+  const scoreEl = summaryEl.querySelector('[data-ipp-score]');
+  const statsEl = summaryEl.querySelector('[data-ipp-stats]');
+  if (lvlEl) lvlEl.textContent = levelText;
+  if (scoreEl) scoreEl.textContent = summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分';
+  if (statsEl) {
+    statsEl.textContent = `期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) · 期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) · 總 ${summary.totalCount} 筆`;
+  }
+
+  // 順便同步每列下方的「✓ 計入加分 / ⓘ 期間外」tag
+  // 那些 tag 在初始 render 時就根據 d.name && month 條件決定要不要插
+  // 目前用 textContent 重算就好,不重新插入(初始已經出來的會跟著正確)
+  // 注意:剛建立的新空列可能完全沒 tag,使用者填到一半才有(這時 input event 會觸發 — 但 tag 是初始 render 寫死的)
+  // 為求即時體驗,直接動態維護 tag:
+  container.querySelectorAll('.detail-multi-row').forEach(row => {
+    const txt = row.querySelector('input.emp-detail');
+    const ym = row.querySelector('input[type="month"]');
+    if (!txt || !ym) return;
+    const name = (txt.value || '').trim();
+    const occurredAt = normalizeYearMonth(ym.value);
+    // tag 容器是 row 後緊跟的 .detail-row-tag
+    let tagEl = row.nextElementSibling;
+    if (!tagEl || !tagEl.classList || !tagEl.classList.contains('detail-row-tag')) {
+      // 不存在就插一個
+      tagEl = document.createElement('div');
+      tagEl.className = 'detail-row-tag';
+      row.parentElement.insertBefore(tagEl, row.nextSibling);
+    }
+    if (name && occurredAt) {
+      const inBand = isIppInBandPeriod(occurredAt, bandSince);
+      tagEl.innerHTML = inBand
+        ? '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>'
+        : '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
+    } else {
+      tagEl.innerHTML = '';
+    }
+  });
 }
 
 function updateLiveTotal() {
@@ -5239,7 +5329,7 @@ function handleExportCsv() {
       trimmedAvg: trimmed.avg,
       bonus: bonus.score || 0,
       bonusNote: bonus.note || '',
-      withBonus: trimmed.avg !== null ? trimmed.avg + (bonus.score || 0) : null,
+      withBonus: trimmed.avg !== null ? trimmed.avg * 0.9 + (bonus.score || 0) * 0.1 : null,
       trimmedAny: trimmed.trimmedAny,
       count: raw.count,
       eligibleMgrCount: eligibleManagers(e).length
