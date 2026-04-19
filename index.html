@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.5';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.7';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2842,9 +2842,9 @@ function renderEmpBonusForReviewer(emp) {
   if (isEmpty) {
     badgeBg = 'transparent'; badgeColor = 'var(--ink-muted)'; badgeText = '— 員工尚未填寫';
   } else if (status === 'draft') {
-    badgeBg = 'rgba(176,141,58,0.15)'; badgeColor = 'var(--gold)'; badgeText = '草稿 · 員工編輯中';
+    badgeBg = 'rgba(176,141,58,0.15)'; badgeColor = 'var(--gold)'; badgeText = '草稿 · 員工尚未提交 · 尚未審核';
   } else if (status === 'submitted') {
-    badgeBg = 'rgba(139,46,31,0.12)'; badgeColor = 'var(--accent)'; badgeText = '已提交 · 待管理者審核';
+    badgeBg = 'rgba(139,46,31,0.12)'; badgeColor = 'var(--accent)'; badgeText = '已提交 · 尚未審核';
   } else if (status === 'reviewed') {
     badgeBg = 'rgba(74,107,58,0.15)'; badgeColor = 'var(--green)'; badgeText = '已完成審核';
   } else {
@@ -3071,8 +3071,12 @@ function renderEmpBonusForReviewer(emp) {
       ${isEmpty
         ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工未透過自填連結提交任何加分項目,或管理者尚未發出連結。</div>'
         : `
-          <div style="font-size:10px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.06em;margin-bottom:4px;">
-            ※ 此處不顯示預計加分,僅作為您評分時的參考
+          <div style="font-size:11px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.04em;margin-bottom:8px;line-height:1.5;">
+            ${status === 'reviewed'
+              ? '※ 以下為員工自填且管理者審核後的項目,僅供評分參考,不顯示預計加分。'
+              : status === 'submitted'
+                ? '⚠ 以下項目<b>尚未經管理者審核</b>,實際加分以審核結果為準。僅供評分參考,不顯示預計加分。'
+                : '⚠ 員工<b>尚未提交</b>,以下為草稿內容,仍可能異動。僅供評分參考,不顯示預計加分。'}
           </div>
           ${lines.join('')}
         `}
@@ -3175,8 +3179,9 @@ function renderManagerScoring() {
           <div class="dept">${escapeHtml(emp.enName || '')} · ${escapeHtml(displayDept(emp.dept))} · ${escapeHtml(emp.id)}</div>
         </div>
         <div class="summary">
-          <span class="label">本次總分</span>
-          <span class="value" id="liveTotal">—<span class="max"> / ${(state.dimensions.length * 5).toFixed(1)}</span></span>
+          <span class="label">您給的分數</span>
+          <span class="value" id="liveTotal">—</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);letter-spacing:0.04em;">滿分 ${(state.dimensions.length * 5).toFixed(1)}</span>
         </div>
       </div>
 
@@ -5643,7 +5648,7 @@ function updateLiveTotal() {
     if (!isNaN(v)) { sum += v; count++; }
   });
   if (count === state.dimensions.length && count > 0) {
-    live.innerHTML = sum.toFixed(2) + '<span class="max"> / ' + (state.dimensions.length * 5).toFixed(1) + '</span>';
+    live.textContent = sum.toFixed(2);
   }
 }
 
