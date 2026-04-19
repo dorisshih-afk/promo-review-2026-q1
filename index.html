@@ -820,7 +820,7 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
 .ipp-row-tag-out { background: rgba(176,141,58,0.15); color: var(--gold); }
 
 /* IPP 細項列裡的 weight 下拉 */
-.detail-multi-row > select[class$="-weight"] {
+.detail-multi-row > input[type="number"][class$="-weight"] {
   flex: 0 0 auto;
   width: 80px;
   background: var(--bg);
@@ -829,10 +829,10 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   color: var(--ink);
-  cursor: pointer;
+  text-align: right;
 }
-.detail-multi-row > select[class$="-weight"]:focus { outline: none; border-color: var(--ink); }
-.detail-multi-row > select[class$="-weight"]:disabled {
+.detail-multi-row > input[type="number"][class$="-weight"]:focus { outline: none; border-color: var(--ink); }
+.detail-multi-row > input[type="number"][class$="-weight"]:disabled {
   background: transparent; opacity: 0.6; cursor: not-allowed;
 }
 
@@ -1568,7 +1568,8 @@ const EXTRA_CONTRIBUTION_ITEMS = [
     ]
   },
   {
-    id: 'nfi', name: 'NFI', type: 'single',
+    id: 'nfi', name: 'NFI / POC', type: 'single',
+    note: 'NFI 與 POC 項目合併計數',
     options: [
       { id: 'none', label: '無', score: 0 },
       { id: '1', label: '列舉項目 = 1', score: 1 },
@@ -2200,7 +2201,7 @@ function renderEmployeeForm() {
     ipp: '請列出 IPP 名稱(對應數量)',
     conference: '會議 / 論文名稱',
     award: '獎項名稱、頒發單位',
-    nfi: '請列出 NFI 項目',
+    nfi: '請列出 NFI 或 POC 項目名稱',
     travel: '出差地點、起迄日期',
     lecturer: '課程名稱、授課場次',
     linc: '參賽作品名稱'
@@ -2334,7 +2335,8 @@ function renderEmployeeForm() {
                       </div>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
                         💡 IPP 加分由系統自動判定:加總「期間內」每筆的權重 → 對應加分等級。<br>
-                        期間外的 IPP 仍可填(會出現在統計裡),但不計加分。每列右側請選 0.1 / 0.5 / 1。
+                        期間外的 IPP 仍可填(會出現在統計裡),但不計加分。<br>
+                        每列「權重」請依共掛人數填:獨自完成 = 1、2 人共掛 = 0.5、3 人 = 0.33,以此類推(可填 0.01 ~ 1)。
                       </div>
                     `;
                   })() : `
@@ -3193,7 +3195,173 @@ function renderEmpDetail(emp) {
         ` : ''}
       </tbody>
     </table>
+    ${renderEmpBonusForAdmin(emp)}
   `;
+}
+
+// Admin 端「展開明細」用的加分明細區塊
+// 跟 renderEmpBonusForReviewer 不同:這裡顯示分數(主管端會被擋,但管理者要看)
+function renderEmpBonusForAdmin(emp) {
+  const sub = getEmployeeSubmission(emp.id);
+  const bonus = getEmployeeBonus(emp.id);  // 實際採用的(管理員代填或審核後)
+  const data = sub.data || {};
+  const status = sub.status;
+  // 狀態 badge (跟 reviewer 端用同一套樣式)
+  let badgeBg, badgeColor, badgeText;
+  if (!sub || (!data.items && !data.itemDetails)) {
+    badgeBg = 'transparent'; badgeColor = 'var(--ink-muted)'; badgeText = '— 員工尚未填寫';
+  } else if (status === 'draft') {
+    badgeBg = 'rgba(176,141,58,0.15)'; badgeColor = 'var(--gold)'; badgeText = '草稿 · 員工編輯中';
+  } else if (status === 'submitted') {
+    badgeBg = 'rgba(139,46,31,0.12)'; badgeColor = 'var(--accent)'; badgeText = '已提交 · 待審核';
+  } else if (status === 'reviewed') {
+    badgeBg = 'rgba(74,107,58,0.15)'; badgeColor = 'var(--green)'; badgeText = '已審核';
+  } else {
+    badgeBg = 'transparent'; badgeColor = 'var(--ink-muted)'; badgeText = '—';
+  }
+
+  // 把員工填的內容(原始)整理出來,按 EXTRA_CONTRIBUTION_ITEMS 順序
+  const empLines = [];
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    const sel = data.items?.[item.id];
+    // IPP 特例:即使 items.ipp 沒設(權重 < 0.1),只要 itemDetails.ipp 有東西也要顯示
+    if (item.id === 'ipp') {
+      const detailArr = normalizeDetail(data.itemDetails?.ipp);
+      if (detailArr.length === 0) return;
+      const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM);
+      const review = sub.reviewedItems?.ipp;
+      const levelText = summary.totalCount === 0
+        ? '無'
+        : (summary.levelLabel || '無 (期間內權重不足 0.1)');
+      const rowsHtml = detailArr.map(d => {
+        const inBand = isIppInBandPeriod(d.occurredAt, emp.bandSinceYYYYMM);
+        const tagColor = inBand ? 'var(--green)' : 'var(--gold)';
+        const tagText = inBand ? '✓ 期間內' : 'ⓘ 期間外';
+        const w = d.weight ? `權重 ${escapeHtml(String(d.weight))}` : '未填權重';
+        return `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">
+          • ${escapeHtml(d.name)}
+          ${d.occurredAt ? `<span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>` : ''}
+          <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:10px;">· ${w}</span>
+          <span style="color:${tagColor};font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em;margin-left:4px;">${tagText}</span>
+        </div>`;
+      }).join('');
+      const reviewBadge = renderReviewStatusInline(review, item);
+      empLines.push(`
+        <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+          <div style="font-size:13px;color:var(--ink);">
+            <b>${escapeHtml(item.name)}</b>
+            <span style="color:var(--ink-soft);margin-left:6px;">— 自動判定:${escapeHtml(levelText)}</span>
+            ${summary.levelScore > 0 ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;font-weight:600;">+${summary.levelScore}</span>` : ''}
+            ${reviewBadge}
+          </div>
+          <div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:3px;font-family:'JetBrains Mono',monospace;letter-spacing:0.04em;">
+            期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) · 期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) · 總 ${summary.totalCount} 筆
+          </div>
+          ${rowsHtml}
+        </div>
+      `);
+      return;
+    }
+    if (item.type === 'single') {
+      if (!sel || sel === 'none') return;
+      const opt = item.options.find(o => o.id === sel);
+      if (!opt) return;
+      const review = sub.reviewedItems?.[item.id];
+      const detailArr = normalizeDetail(data.itemDetails?.[item.id]);
+      const detailHtml = detailArr.length > 0
+        ? detailArr.map(d => `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">• ${escapeHtml(d.name)}${d.occurredAt ? ` <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>` : ''}</div>`).join('')
+        : '<div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:2px;font-style:italic;">(未填具體說明)</div>';
+      empLines.push(`
+        <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+          <div style="font-size:13px;color:var(--ink);">
+            <b>${escapeHtml(item.name)}</b>
+            <span style="color:var(--ink-soft);margin-left:6px;">— ${escapeHtml(opt.label)}</span>
+            ${opt.score > 0 ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;font-weight:600;">+${opt.score}</span>` : ''}
+            ${renderReviewStatusInline(review, item)}
+          </div>
+          ${detailHtml}
+        </div>
+      `);
+    } else {
+      // multi (cert)
+      const arr = Array.isArray(sel) ? sel : [];
+      if (arr.length === 0) return;
+      const certHtml = arr.map(optId => {
+        const opt = item.options.find(o => o.id === optId);
+        if (!opt) return '';
+        const review = sub.reviewedCertItems?.[optId];
+        const detailArr = normalizeDetail(data.certDetails?.[optId]);
+        const detailLine = detailArr.length > 0
+          ? detailArr.map(d => `${escapeHtml(d.name)}${d.occurredAt ? ` (${escapeHtml(d.occurredAt)})` : ''}`).join(' / ')
+          : '(未填具體說明)';
+        return `
+          <div style="font-size:12px;color:var(--ink-soft);padding-left:14px;margin-top:3px;">
+            • <b>${escapeHtml(opt.label)}</b>
+            ${opt.score > 0 ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:4px;font-weight:600;">+${opt.score}</span>` : ''}
+            <span style="color:var(--ink-muted);">— ${escapeHtml(detailLine)}</span>
+            ${renderReviewStatusInline(review, null)}
+          </div>
+        `;
+      }).join('');
+      empLines.push(`
+        <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+          <div style="font-size:13px;color:var(--ink);"><b>${escapeHtml(item.name)}</b> <span style="color:var(--ink-muted);">(${arr.length} 項)</span></div>
+          ${certHtml}
+        </div>
+      `);
+    }
+  });
+  // Others
+  if ((data.others || 0) > 0 || (data.othersNote || '').trim()) {
+    const review = sub.reviewedItems?.others;
+    const note = (data.othersNote || '').trim() || '(未填說明)';
+    empLines.push(`
+      <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+        <div style="font-size:13px;color:var(--ink);">
+          <b>Others</b>
+          <span style="color:var(--ink-soft);margin-left:6px;">— 其他特殊貢獻</span>
+          ${(data.others || 0) > 0 ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;font-weight:600;">+${data.others}</span>` : ''}
+          ${renderReviewStatusInline(review, null)}
+        </div>
+        <div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">• ${escapeHtml(note)}</div>
+      </div>
+    `);
+  }
+
+  const isEmpty = empLines.length === 0;
+
+  return `
+    <div style="margin-top:18px;background:var(--bg);border:1px solid var(--line-soft);padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${isEmpty ? '0' : '8px'};flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:baseline;gap:14px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink-muted);">
+            員工自填 · Extra Contribution
+          </div>
+          ${bonus.score > 0 ? `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gold);letter-spacing:0.04em;">實際採用 +${bonus.score}</div>` : ''}
+        </div>
+        <div style="display:inline-flex;align-items:center;padding:3px 10px;background:${badgeBg};color:${badgeColor};font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.08em;">
+          ${badgeText}
+        </div>
+      </div>
+      ${isEmpty
+        ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工未透過自填連結提交任何加分項目;若管理者另外代填,實際採用值會顯示於右上。</div>'
+        : empLines.join('')}
+    </div>
+  `;
+}
+
+// 內聯顯示審核狀態 tag(供 admin/reviewer 共用,但 admin 版本可額外顯示分數)
+function renderReviewStatusInline(review, item) {
+  if (review === 'accepted') return '<span style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">✓ 接受</span>';
+  if (review === 'rejected') return '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">✗ 拒絕</span>';
+  if (review && typeof review === 'object' && review.adjustedTo && item) {
+    const adj = item.options.find(o => o.id === review.adjustedTo);
+    return `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">↔ 已調整為 ${escapeHtml(adj ? adj.label : '')}</span>`;
+  }
+  if (review === 'pending') {
+    return '<span style="color:var(--ink-muted);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">⋯ 待審</span>';
+  }
+  return '';
 }
 
 function renderBonusTab() {
@@ -3310,7 +3478,7 @@ function renderBonusTab() {
                           ipp: '請列出 IPP 名稱(對應數量)',
                           conference: '會議 / 論文名稱',
                           award: '獎項名稱、頒發單位',
-                          nfi: '請列出 NFI 項目',
+                          nfi: '請列出 NFI 或 POC 項目名稱',
                           travel: '出差地點、起迄日期',
                           lecturer: '課程名稱、授課場次',
                           linc: '參賽作品名稱'
@@ -4200,12 +4368,9 @@ async function handleAction(e) {
       const placeholder = addBtn.dataset.placeholder || '';
       const isIpp = addBtn.dataset.isIpp === '1';
       const weightField = isIpp ? `
-        <select class="${className}-weight" ${attrs} title="本筆 IPP 權重">
-          <option value="" selected>權重</option>
-          <option value="0.1">0.1</option>
-          <option value="0.5">0.5</option>
-          <option value="1">1</option>
-        </select>
+        <input type="number" class="${className}-weight" ${attrs}
+               value="" min="0.01" max="1" step="0.01" placeholder="權重"
+               title="本筆 IPP 權重(0 < x ≤ 1;例 3 人共掛填 0.33)">
       ` : '';
       const tmp = document.createElement('div');
       tmp.innerHTML = `
@@ -4510,11 +4675,17 @@ function collectAndValidateEmpForm() {
         const label = itemDef ? itemDef.name : itemId;
         problems.push(`${label}「${name}」: ${err}`);
       }
-      // IPP 額外:weight 必填(0.1 / 0.5 / 1)
+      // IPP 額外:weight 必填且須在 (0, 1] 區間(例:獨自 1 / 2 人 0.5 / 3 人 0.33)
       if (itemId === 'ipp') {
-        const wsel = row.querySelector('select.emp-detail-weight');
-        if (!wsel || !wsel.value) {
-          problems.push(`IPP「${name}」: 請選擇本筆權重(0.1 / 0.5 / 1)`);
+        const winp = row.querySelector('input.emp-detail-weight');
+        const wval = winp ? (winp.value || '').trim() : '';
+        if (!wval) {
+          problems.push(`IPP「${name}」: 請填本筆權重(0 < 權重 ≤ 1)`);
+        } else {
+          const w = parseFloat(wval);
+          if (!isFinite(w) || w <= 0 || w > 1) {
+            problems.push(`IPP「${name}」: 權重「${wval}」無效,須為 0 < 權重 ≤ 1 的數字`);
+          }
         }
       }
     });
@@ -4559,7 +4730,7 @@ async function collectAndSaveEmpForm(newStatus) {
       const txt = row.querySelector('input.emp-detail, input.emp-cert-detail');
       if (!txt) return;
       const ym = row.querySelector('input[type="month"]');
-      const wsel = row.querySelector('select.emp-detail-weight, select.emp-cert-detail-weight');
+      const wsel = row.querySelector('input.emp-detail-weight, input.emp-cert-detail-weight');
       const name = (txt.value || '').trim();
       if (!name) return;
       const obj = { name, occurredAt: ym ? normalizeYearMonth(ym.value) : '' };
@@ -4947,7 +5118,7 @@ async function handleSaveBonusEmp(empId) {
       const txt = row.querySelector('input.bonus-detail, input.bonus-cert-detail');
       if (!txt) return;
       const ym = row.querySelector('input[type="month"]');
-      const wsel = row.querySelector('select.bonus-detail-weight, select.bonus-cert-detail-weight');
+      const wsel = row.querySelector('input.bonus-detail-weight, input.bonus-cert-detail-weight');
       const name = (txt.value || '').trim();
       if (!name) return;
       const obj = { name, occurredAt: ym ? normalizeYearMonth(ym.value) : '' };
@@ -5393,14 +5564,11 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
         ? '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>'
         : '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
     }
-    // IPP weight 下拉
+    // IPP weight 數字輸入(0 < x ≤ 1,小數最多 2 位;例:1 人 = 1、2 人共掛 = 0.5、3 人 = 0.33)
     const weightField = isIpp ? `
-      <select class="${className}-weight" ${dataAttrs} ${disAttr} title="本筆 IPP 權重">
-        <option value=""    ${!d.weight ? 'selected' : ''}>權重</option>
-        <option value="0.1" ${String(d.weight) === '0.1' ? 'selected' : ''}>0.1</option>
-        <option value="0.5" ${String(d.weight) === '0.5' ? 'selected' : ''}>0.5</option>
-        <option value="1"   ${String(d.weight) === '1'   ? 'selected' : ''}>1</option>
-      </select>
+      <input type="number" class="${className}-weight" ${dataAttrs} ${disAttr}
+             value="${d.weight !== undefined && d.weight !== '' ? escapeHtml(String(d.weight)) : ''}"
+             min="0.01" max="1" step="0.01" placeholder="權重" title="本筆 IPP 權重(0 < x ≤ 1;例 3 人共掛填 0.33)">
     ` : '';
     return `
     <div class="detail-multi-row">
