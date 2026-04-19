@@ -2346,7 +2346,8 @@ function renderEmployeeForm() {
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
                         💡 IPP 加分由系統自動判定:加總「期間內」每筆的權重 → 對應加分等級。<br>
                         期間外的 IPP 仍可填(會出現在統計裡),但不計加分。<br>
-                        每列「權重」請依共掛人數填:獨自完成 = 1、2 人共掛 = 0.5、3 人 = 0.33,以此類推(可填 0.01 ~ 1)。
+                        每列「權重」請依共掛人數填:獨自完成 = 1、2 人共掛 = 0.5、3 人 = 0.33,以此類推(可填 0.01 ~ 1)。<br>
+                        ※ 期間內只要有 IPP,即使多人共掛使權重總和 < 0.1,仍會給最低保底加分(+1)。
                       </div>
                     `;
                   })() : `
@@ -3861,6 +3862,74 @@ function renderReviewDetail(empId) {
 function renderReviewItemRow(emp, item, sub, isDraft = false) {
   const data = sub.data || {};
   const sel = data.items?.[item.id];
+
+  // === IPP 特例:即使 items.ipp 沒設(權重 < 0.1 但保底另算)也要顯示 ===
+  if (item.id === 'ipp') {
+    const detailArr = normalizeDetail(data.itemDetails?.ipp);
+    if (detailArr.length === 0) return '';  // 真的完全沒填
+    const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM);
+    const review = sub.reviewedItems?.ipp || 'pending';
+    const isAdjusted = typeof review === 'object' && review.adjustedTo;
+    const adjustedToId = isAdjusted ? review.adjustedTo : null;
+    // 自動判定 label
+    const levelText = summary.totalCount === 0
+      ? '無'
+      : (summary.levelLabel || '無 (期間內權重不足保底)');
+    // 把每筆 IPP 列出來,含期間 tag 和權重
+    const linesHtml = detailArr.map(d => {
+      const inBand = isIppInBandPeriod(d.occurredAt, emp.bandSinceYYYYMM);
+      const w = parseFloat(d.weight);
+      const hasValidWeight = isFinite(w) && w > 0 && w <= 1;
+      let tag;
+      if (!d.occurredAt) {
+        tag = '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;margin-left:4px;">⚠ 未填月份</span>';
+      } else if (!inBand) {
+        tag = '<span style="color:var(--gold);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:4px;">ⓘ 期間外</span>';
+      } else if (hasValidWeight) {
+        tag = '<span style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:4px;">✓ 計入</span>';
+      } else {
+        tag = '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;margin-left:4px;">⚠ 缺權重</span>';
+      }
+      const monthHtml = d.occurredAt
+        ? `<span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>`
+        : '';
+      const weightHtml = `<span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:4px;">· 權重 ${d.weight !== undefined && d.weight !== '' ? escapeHtml(String(d.weight)) : '—'}</span>`;
+      return `<div style="margin-top:2px;">${escapeHtml(d.name)} ${monthHtml}${weightHtml}${tag}</div>`;
+    }).join('');
+
+    return `
+      <div class="form-item-row ${!isDraft ? renderItemReviewClass(review) : ''}">
+        <div class="form-item-name">
+          ${escapeHtml(item.name)}
+          <div style="font-size:12px;color:var(--ink-soft);font-weight:400;margin-top:6px;">
+            自動判定: <b>${escapeHtml(levelText)}</b>
+            ${summary.levelScore > 0 ? `<span style="color:var(--gold);">(+${summary.levelScore})</span>` : '<span style="color:var(--ink-muted);">(不加分)</span>'}
+          </div>
+          <div style="font-size:11px;color:var(--ink-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;letter-spacing:0.04em;">
+            期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) · 期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) · 總 ${summary.totalCount} 筆
+          </div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;padding-left:10px;border-left:2px solid var(--gold);">
+            ${linesHtml}
+          </div>
+        </div>
+        <div class="form-item-control">
+          ${isDraft ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工尚未提交,無法審核</div>' : `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="review-btn ${review === 'accepted' ? 'active accept' : ''}" data-action="set-review" data-empid="${emp.id}" data-itemid="${item.id}" data-decision="accepted">✓ 接受</button>
+              <button class="review-btn ${review === 'rejected' ? 'active reject' : ''}" data-action="set-review" data-empid="${emp.id}" data-itemid="${item.id}" data-decision="rejected">✗ 拒絕</button>
+              <select class="review-adjust ${isAdjusted ? 'active adjusted' : ''}" data-empid="${emp.id}" data-itemid="${item.id}">
+                <option value="">↔ 調整為...</option>
+                ${item.options.filter(o => o.id !== 'none' && o.id !== sel).map(o => `
+                  <option value="${o.id}" ${adjustedToId === o.id ? 'selected' : ''}>${escapeHtml(o.label)} (+${o.score})</option>
+                `).join('')}
+              </select>
+            </div>
+            ${review === 'pending' ? '<div style="font-size:11px;color:var(--ink-muted);margin-top:6px;">⋯ 待您決定</div>' : ''}
+          `}
+        </div>
+      </div>
+    `;
+  }
 
   if (item.type === 'single') {
     if (!sel || sel === 'none') return '';  // 員工沒選
@@ -5609,15 +5678,25 @@ function getIppWeight(detail) {
 }
 
 // 從 detail 陣列(已 normalize)推算 IPP 期間內權重總和 → 對應到 EXTRA_CONTRIBUTION_ITEMS 裡 ipp 的 option id
-// sum < 0.1 → 'none';0.1 <= sum < 0.5 → 'lt05';...;sum > 3 → 'gt3'
+// 規則:
+//   1) 完全沒期間內 IPP → 'none'(不加分)
+//   2) 期間內有「至少 1 筆有效權重」但加總 < 0.1 → **保底** 'lt05' (+1) — 多人共掛保護
+//   3) 加總 ≥ 0.1 → 依區間對應(0.1 / 0.5 / 1 / 2 / 3 / >3)
 function computeIppLevelFromDetails(detailArr, bandSince) {
   let sumIn = 0;
+  let inWithWeightCount = 0;  // 期間內 + 有有效權重(> 0)的列數
   (detailArr || []).forEach(d => {
     if (isIppInBandPeriod(d.occurredAt, bandSince)) {
-      sumIn += getIppWeight(d);
+      const w = getIppWeight(d);
+      sumIn += w;
+      if (w > 0) inWithWeightCount++;
     }
   });
-  if (sumIn < 0.1) return { optionId: 'none', sum: sumIn };
+  // 完全沒有期間內權重(可能是沒填 IPP、或填了但都沒填權重)→ 不加分
+  if (inWithWeightCount === 0) return { optionId: 'none', sum: sumIn };
+  // 有期間內 IPP 但權重總和不足 0.1(極端共掛情境如 13 人 = 0.077)→ 保底 lt05
+  if (sumIn < 0.1) return { optionId: 'lt05', sum: sumIn };
+  // 正常區間
   if (sumIn < 0.5) return { optionId: 'lt05', sum: sumIn };
   if (sumIn < 1)   return { optionId: 'lt1',  sum: sumIn };
   if (sumIn === 1) return { optionId: 'eq1',  sum: sumIn };
