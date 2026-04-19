@@ -4278,7 +4278,22 @@ function renderReviewDetail(empId) {
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
     if (item.listingMode) {
       const arr = migrateListedDetails(item, sub, data);
-      const summary = summarizeListedItem(item, arr, { bandSince: emp.bandSinceYYYYMM });  // 不 preview,只算 accepted
+      // IPP 特例:只算 accepted 細項 weight 加總對應等級
+      if (item.ippMode) {
+        const { optionId } = computeIppLevelFromDetails(arr, emp.bandSinceYYYYMM, { onlyAccepted: true });
+        const opt = item.options.find(o => o.id === optionId);
+        if (opt) previewBonus += opt.score;
+        return;
+      }
+      // Travel 特例:只算 accepted 段天數加總對應等級
+      if (item.travelMode) {
+        const travelArr = normalizeTravelDetail(data.itemDetails?.travel);
+        const { optionId } = computeTravelLevelFromDetails(travelArr, emp.bandSinceYYYYMM, state.covidPeriod || {}, { onlyAccepted: true });
+        const opt = item.options.find(o => o.id === optionId);
+        if (opt) previewBonus += opt.score;
+        return;
+      }
+      const summary = summarizeListedItem(item, arr, { bandSince: emp.bandSinceYYYYMM });
       previewBonus += summary.acceptedScore;
       return;
     }
@@ -7159,6 +7174,13 @@ function normalizeDetail(v) {
       if (x.score !== undefined && x.score !== null && x.score !== '') {
         const n = parseFloat(x.score);
         if (isFinite(n)) out.score = n;
+      }
+      // 保留 startDate / endDate(Travel listingMode 用,格式 YYYY-MM-DD)
+      if (typeof x.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.startDate)) {
+        out.startDate = x.startDate;
+      }
+      if (typeof x.endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.endDate)) {
+        out.endDate = x.endDate;
       }
       return out;
     }
