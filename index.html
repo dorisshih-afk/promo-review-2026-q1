@@ -2451,21 +2451,35 @@ function renderEmployeeForm() {
                       </div>
                     `;
                   })() : item.listingMode ? (() => {
+                    const noneFlag = !!data.itemNoneFlags?.[item.id];
                     const listedArr = migrateListedDetails(item, sub, data);
                     const summary = summarizeListedItem(item, listedArr, { preview: true, bandSince });
+                    const levelText = noneFlag
+                      ? '本項無可列舉'
+                      : (summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列');
+                    const scoreText = noneFlag
+                      ? '不加分'
+                      : (summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分');
                     return `
                       <div class="ipp-auto-summary" data-listed-summary data-listed-item="${item.id}">
                         <span class="ipp-auto-label">自動計算</span>
-                        <span class="ipp-auto-level" data-listed-level>${summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列'}</span>
-                        <span class="ipp-auto-score" data-listed-score>${summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分'}</span>
+                        <span class="ipp-auto-level" data-listed-level>${escapeHtml(levelText)}</span>
+                        <span class="ipp-auto-score" data-listed-score>${scoreText}</span>
                         <span class="ipp-auto-stats" data-listed-stats>
-                          ${summary.totalCount === 0 ? '請列舉每個 KI 項目' : `主管審核後實際採用「接受」筆數的等級分數加總`}
+                          ${noneFlag
+                            ? '員工已確認本項無可加分'
+                            : (summary.totalCount === 0 ? '請列舉每個 KI 項目,或勾選下方「本項無可列舉」' : '主管審核後實際採用「接受」筆數的等級分數加總')}
                         </span>
                       </div>
+                      <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--ink-soft);cursor:${isLocked ? 'not-allowed' : 'pointer'};">
+                        <input type="checkbox" class="emp-listed-none" data-item="${item.id}" ${noneFlag ? 'checked' : ''} ${isLocked ? 'disabled' : ''}>
+                        <span>本項無可列舉(我確定沒有 ${escapeHtml(item.name)} 可加分)</span>
+                      </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
                         💡 每列填一個 KI 項目:選等級(T2/T1/CEO)、寫項目名稱、發生年月。<br>
                         主管會逐筆審核 ✓ 接受 / ✗ 拒絕,**接受的列各自加分,加總為本項目最終分數**。<br>
-                        例:列 T2(+2)、T1(+3)、CEO(+4)若全接受 → 共 +9 分。
+                        例:列 T2(+2)、T1(+3)、CEO(+4)若全接受 → 共 +9 分。<br>
+                        若本項真無可列舉,請勾上方「本項無可列舉」明確表態。
                       </div>
                     `;
                   })() : `
@@ -2644,7 +2658,8 @@ function renderEmpBonusForReviewer(emp) {
   const hasItems = (data.items && Object.keys(data.items).length > 0)
                  || (data.itemDetails?.ipp && data.itemDetails.ipp.length > 0)
                  || (data.itemDetails?.travel && data.itemDetails.travel.length > 0)
-                 || EXTRA_CONTRIBUTION_ITEMS.some(it => it.listingMode && data.itemDetails?.[it.id]?.length > 0);
+                 || EXTRA_CONTRIBUTION_ITEMS.some(it => it.listingMode && data.itemDetails?.[it.id]?.length > 0)
+                 || EXTRA_CONTRIBUTION_ITEMS.some(it => it.listingMode && data.itemNoneFlags?.[it.id] === true);
   const hasOthers = (data.others || 0) > 0 || (data.othersNote || '').trim();
   const isEmpty = !hasItems && !hasOthers;
 
@@ -2683,7 +2698,21 @@ function renderEmpBonusForReviewer(emp) {
       const sel = data.items[item.id];
       // === Listing-mode 特例:每筆細項各自有等級 + 審核狀態 ===
       if (item.listingMode) {
+        const noneFlag = !!data.itemNoneFlags?.[item.id];
         const detailArr = migrateListedDetails(item, sub, data);
+        // 員工勾了「本項無可列舉」→ 顯示一筆資訊列
+        if (noneFlag && detailArr.length === 0) {
+          lines.push(`
+            <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+              <div style="font-size:13px;color:var(--ink);">
+                <b>${escapeHtml(item.name)}</b>
+                <span style="color:var(--ink-soft);margin-left:6px;">— 員工已確認本項無可加分</span>
+                <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:8px;">不加分</span>
+              </div>
+            </div>
+          `);
+          return;
+        }
         if (detailArr.length === 0) return;
         const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
         const rowsHtml = detailArr.map(d => {
@@ -3447,7 +3476,20 @@ function renderEmpBonusForAdmin(emp) {
     const sel = data.items?.[item.id];
     // Listing-mode 特例:每筆細項各自有等級 + 審核狀態(顯示分數)
     if (item.listingMode) {
+      const noneFlag = !!data.itemNoneFlags?.[item.id];
       const detailArr = migrateListedDetails(item, sub, data);
+      if (noneFlag && detailArr.length === 0) {
+        empLines.push(`
+          <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+            <div style="font-size:13px;color:var(--ink);">
+              <b>${escapeHtml(item.name)}</b>
+              <span style="color:var(--ink-soft);margin-left:6px;">— 員工已確認本項無可加分</span>
+              <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">不加分</span>
+            </div>
+          </div>
+        `);
+        return;
+      }
       if (detailArr.length === 0) return;
       const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
       const rowsHtml = detailArr.map(d => {
@@ -4141,7 +4183,24 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
 
   // === Listing-mode(STAMP 等):每筆細項獨立 ✓/✗ 按鈕 ===
   if (item.listingMode) {
+    const noneFlag = !!data.itemNoneFlags?.[item.id];
     const detailArr = migrateListedDetails(item, sub, data);
+    // 員工明確勾「本項無可列舉」→ 顯示為不可審核的資訊列(沒 ✓/✗ 按鈕)
+    if (noneFlag && detailArr.length === 0) {
+      return `
+        <div class="form-item-row">
+          <div class="form-item-name">
+            ${escapeHtml(item.name)}
+            <div style="font-size:12px;color:var(--ink-soft);font-weight:400;margin-top:6px;">
+              員工已明確表態:<b>本項無可加分</b>
+            </div>
+          </div>
+          <div class="form-item-control">
+            <div style="font-size:11px;color:var(--ink-muted);font-style:italic;">無細項可審核 · +0</div>
+          </div>
+        </div>
+      `;
+    }
     if (detailArr.length === 0) return '';
     const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });  // 不 preview,純看實際 accepted
     const rowsHtml = detailArr.map((d, idx) => {
@@ -4826,6 +4885,14 @@ function attachHandlers() {
     container.addEventListener('input', handler);
     container.addEventListener('change', handler);
   });
+  // 「本項無可列舉」checkbox 變動:觸發對應 listing-mode container 的 summary 重算
+  document.querySelectorAll('input.emp-listed-none').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const itemId = cb.dataset.item;
+      const container = document.querySelector(`.detail-multi[data-item-id="${itemId}"][data-listing="1"]`);
+      if (container) updateListedSummary(container);
+    });
+  });
   // bandSince 改變也要重算(IPP / Travel / listing-mode 都會被影響)
   const bandSinceEl = document.querySelector('.emp-band-since');
   if (bandSinceEl) {
@@ -5127,21 +5194,34 @@ function updateListedSummary(container) {
   if (!item || !item.listingMode) return;
   const summaryEl = document.querySelector(`[data-listed-summary][data-listed-item="${itemId}"]`);
   if (!summaryEl) return;
+  // 檢查「本項無可列舉」checkbox
+  const noneCb = document.querySelector(`input.emp-listed-none[data-item="${itemId}"]`);
+  const noneFlag = !!(noneCb && noneCb.checked);
+  // 勾了 none → 視覺上隱藏列舉區,並清空已填值
+  container.style.display = noneFlag ? 'none' : '';
+  if (noneFlag) {
+    container.querySelectorAll('input.emp-detail').forEach(i => { i.value = ''; });
+    container.querySelectorAll('select.emp-detail-level').forEach(s => { s.value = ''; });
+    container.querySelectorAll('input[type="month"]').forEach(i => { i.value = ''; });
+  }
+
   // 從 DOM 收 rows(含 occurredAt 跟 level)
   const rows = [];
-  container.querySelectorAll('.detail-multi-row').forEach(row => {
-    const txt = row.querySelector('input.emp-detail');
-    const lvl = row.querySelector('select.emp-detail-level');
-    const ym = row.querySelector('input[type="month"]');
-    if (!txt) return;
-    const name = (txt.value || '').trim();
-    if (!name) return;
-    rows.push({
-      name,
-      level: lvl ? lvl.value : '',
-      occurredAt: ym ? normalizeYearMonth(ym.value) : ''
+  if (!noneFlag) {
+    container.querySelectorAll('.detail-multi-row').forEach(row => {
+      const txt = row.querySelector('input.emp-detail');
+      const lvl = row.querySelector('select.emp-detail-level');
+      const ym = row.querySelector('input[type="month"]');
+      if (!txt) return;
+      const name = (txt.value || '').trim();
+      if (!name) return;
+      rows.push({
+        name,
+        level: lvl ? lvl.value : '',
+        occurredAt: ym ? normalizeYearMonth(ym.value) : ''
+      });
     });
-  });
+  }
   // 讀目前 bandSince(可能員工剛改)
   const bandSinceEl = document.querySelector('.emp-band-since');
   const bandSince = bandSinceEl ? normalizeYearMonth(bandSinceEl.value) : '';
@@ -5149,11 +5229,17 @@ function updateListedSummary(container) {
   const lvlEl = summaryEl.querySelector('[data-listed-level]');
   const scoreEl = summaryEl.querySelector('[data-listed-score]');
   const statsEl = summaryEl.querySelector('[data-listed-stats]');
-  if (lvlEl) lvlEl.textContent = summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列';
+  if (lvlEl) {
+    lvlEl.textContent = noneFlag
+      ? '本項無可列舉'
+      : (summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列');
+  }
   if (scoreEl) scoreEl.textContent = summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分';
   if (statsEl) {
-    if (summary.totalCount === 0) {
-      statsEl.textContent = '請列舉每個 KI 項目';
+    if (noneFlag) {
+      statsEl.textContent = '員工已確認本項無可加分';
+    } else if (summary.totalCount === 0) {
+      statsEl.textContent = '請列舉每個 KI 項目,或勾選下方「本項無可列舉」';
     } else if (summary.ineligibleCount > 0) {
       statsEl.innerHTML = `<span style="color:var(--accent);">⚠ ${summary.ineligibleCount} 筆早於 Band 起始,不會計入</span>`;
     } else {
@@ -5734,6 +5820,22 @@ async function collectAndSaveEmpForm(newStatus) {
       const optId = firstTxt.dataset.certOpt;
       const cb = document.querySelector(`.emp-multi[value="${optId}"]`);
       if (cb && cb.checked) sub.data.certDetails[optId] = rows;
+    }
+  });
+
+  // Listing-mode「本項無可列舉」checkbox 收集 → sub.data.itemNoneFlags[itemId]
+  if (!sub.data.itemNoneFlags) sub.data.itemNoneFlags = {};
+  document.querySelectorAll('input.emp-listed-none').forEach(cb => {
+    const itemId = cb.dataset.item;
+    if (!itemId) return;
+    if (cb.checked) {
+      sub.data.itemNoneFlags[itemId] = true;
+      // 若勾了「本項無可列舉」但 itemDetails 還有舊值 → 清掉(避免狀態衝突)
+      if (sub.data.itemDetails && sub.data.itemDetails[itemId]) {
+        delete sub.data.itemDetails[itemId];
+      }
+    } else {
+      delete sub.data.itemNoneFlags[itemId];
     }
   });
 
