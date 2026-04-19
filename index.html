@@ -2497,25 +2497,28 @@ function renderEmployeeForm() {
                 </div>
                 <div class="form-item-control">
                   ${item.id === 'ipp' ? (() => {
+                    const noneFlag = !!data.itemNoneFlags?.ipp;
                     const summary = summarizeIpp(detailArr, bandSince);
                     let levelText;
-                    if (summary.totalCount === 0) levelText = '尚未填寫';
+                    if (noneFlag) levelText = '本項無可列舉';
+                    else if (summary.totalCount === 0) levelText = '尚未填寫';
                     else if (summary.levelLabel) levelText = summary.levelLabel;
                     else levelText = '無 (期間內權重不足 0.1)';
                     return `
                       <div class="ipp-auto-summary" data-ipp-summary>
                         <span class="ipp-auto-label">自動判定</span>
                         <span class="ipp-auto-level" data-ipp-level>${escapeHtml(levelText)}</span>
-                        <span class="ipp-auto-score" data-ipp-score>${summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分'}</span>
+                        <span class="ipp-auto-score" data-ipp-score>${noneFlag ? '不加分' : (summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分')}</span>
                         <span class="ipp-auto-stats" data-ipp-stats>
-                          期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) ·
-                          期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) ·
-                          總 ${summary.totalCount} 筆
+                          ${noneFlag ? '員工已確認本項無可加分' : `期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) · 期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) · 總 ${summary.totalCount} 筆`}
                         </span>
                       </div>
+                      <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--ink-soft);cursor:${isLocked ? 'not-allowed' : 'pointer'};">
+                        <input type="checkbox" class="emp-listed-none" data-item="ipp" ${noneFlag ? 'checked' : ''} ${isLocked ? 'disabled' : ''}>
+                        <span>本項無可列舉</span>
+                      </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
                         💡 IPP 加分由系統自動判定:加總「期間內」每筆的權重 → 對應加分等級。<br>
-                        期間外的 IPP 仍可填(會出現在統計裡),但不計加分。<br>
                         每列「掛名人數」填本筆 IPP 共幾人共掛(獨自完成 = 1、2 人共掛 = 2、13 人 = 13)。系統會自動換算權重。<br>
                         ※ 期間內只要有 IPP,即使多人共掛使權重總和 < 0.1,仍會給最低保底加分(+1)。
                       </div>
@@ -2611,8 +2614,11 @@ function renderEmployeeForm() {
                     const expired = item.validityMonths && curTestDate
                       ? isScoreExpired(curTestDate, item.validityMonths)
                       : false;
-                    const effectiveBonus = expired ? 0 : curBonus;
-                    const effectiveLabel = expired ? '已過期 · 不加分' : (curLabel || '未考 / 不加分');
+                    const isFuture = isFutureYearMonth(curTestDate);
+                    const effectiveBonus = (expired || isFuture) ? 0 : curBonus;
+                    const effectiveLabel = isFuture
+                      ? '考試日期不可為未來 · 不加分'
+                      : (expired ? '已過期 · 不加分' : (curLabel || '未考 / 不加分'));
                     return `
                       <div class="ipp-auto-summary" data-score-input-summary data-score-item="${item.id}">
                         <span class="ipp-auto-label">分數</span>
@@ -5031,11 +5037,35 @@ function attachHandlers() {
     const handler = () => updateListedSummary(container);
     container.addEventListener('input', handler);
     container.addEventListener('change', handler);
+    // 初始同步一次:讓 noneFlag 的 container 隱藏 + summary 正確
+    updateListedSummary(container);
   });
+  // IPP noneFlag 初始同步
+  const ippNoneCb = document.querySelector('input.emp-listed-none[data-item="ipp"]');
+  if (ippNoneCb && ippNoneCb.checked) {
+    const ippContainer = document.querySelector('.detail-multi[data-item-id="ipp"]');
+    if (ippContainer) ippContainer.style.display = 'none';
+    updateIppSummary();
+  }
   // 「本項無可列舉」checkbox 變動:觸發對應 listing-mode container 的 summary 重算
   document.querySelectorAll('input.emp-listed-none').forEach(cb => {
     cb.addEventListener('change', () => {
       const itemId = cb.dataset.item;
+      // IPP 專屬:沒有 listing container,處理 emp-detail inputs 隱藏 + summary 更新
+      if (itemId === 'ipp') {
+        const ippContainer = document.querySelector('.detail-multi[data-item-id="ipp"]');
+        if (ippContainer) {
+          ippContainer.style.display = cb.checked ? 'none' : '';
+          if (cb.checked) {
+            ippContainer.querySelectorAll('input.emp-detail').forEach(i => { i.value = ''; });
+            ippContainer.querySelectorAll('input.emp-detail-weight').forEach(i => { i.value = ''; });
+            ippContainer.querySelectorAll('input[type="month"]').forEach(i => { i.value = ''; });
+          }
+        }
+        updateIppSummary();
+        updateAppliedTotal();
+        return;
+      }
       const container = document.querySelector(`.detail-multi[data-item-id="${itemId}"][data-listing="1"]`);
       if (container) updateListedSummary(container);
     });
@@ -5229,10 +5259,20 @@ function updateIppSummary() {
   if (!summaryEl) return;
   const container = document.querySelector('.detail-multi[data-item-id="ipp"]');
   if (!container) return;
-  // 讀目前 bandSince(可能員工剛改)
+  // 檢查「本項無可列舉」
+  const noneCb = document.querySelector('input.emp-listed-none[data-item="ipp"]');
+  const noneFlag = !!(noneCb && noneCb.checked);
+  const lvlEl = summaryEl.querySelector('[data-ipp-level]');
+  const scoreEl = summaryEl.querySelector('[data-ipp-score]');
+  const statsEl = summaryEl.querySelector('[data-ipp-stats]');
+  if (noneFlag) {
+    if (lvlEl) lvlEl.textContent = '本項無可列舉';
+    if (scoreEl) scoreEl.textContent = '不加分';
+    if (statsEl) statsEl.textContent = '員工已確認本項無可加分';
+    return;
+  }
   const bandSinceEl = document.querySelector('.emp-band-since');
   const bandSince = bandSinceEl ? normalizeYearMonth(bandSinceEl.value) : '';
-  // 從 DOM 收 IPP 細項
   const rows = [];
   container.querySelectorAll('.detail-multi-row').forEach(row => {
     const txt = row.querySelector('input.emp-detail');
@@ -5241,7 +5281,6 @@ function updateIppSummary() {
     if (!name) return;
     const ym = row.querySelector('input[type="month"]');
     const winp = row.querySelector('input.emp-detail-weight');
-    // UI 是「掛名人數」整數,內部存 weight = 1/N。即時計算也要轉。
     rows.push({
       name,
       occurredAt: ym ? normalizeYearMonth(ym.value) : '',
@@ -5253,10 +5292,6 @@ function updateIppSummary() {
   if (summary.totalCount === 0) levelText = '尚未填寫';
   else if (summary.levelLabel) levelText = summary.levelLabel;
   else levelText = '無 (期間內權重不足 0.1)';
-
-  const lvlEl = summaryEl.querySelector('[data-ipp-level]');
-  const scoreEl = summaryEl.querySelector('[data-ipp-score]');
-  const statsEl = summaryEl.querySelector('[data-ipp-stats]');
   if (lvlEl) lvlEl.textContent = levelText;
   if (scoreEl) scoreEl.textContent = summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分';
   if (statsEl) {
@@ -5283,13 +5318,15 @@ function updateIppSummary() {
       row.parentElement.insertBefore(tagEl, row.nextSibling);
     }
     if (name && occurredAt) {
+      const isFuture = isFutureYearMonth(occurredAt);
       const inBand = isIppInBandPeriod(occurredAt, bandSince);
       const winp = row.querySelector('input.emp-detail-weight');
-      // UI 是人數,先轉 weight 再判斷
       const wStr = winp ? peopleNToWeight(winp.value) : '';
       const w = parseFloat(wStr);
       const hasValidWeight = isFinite(w) && w > 0 && w <= 1;
-      if (!inBand) {
+      if (isFuture) {
+        tagEl.innerHTML = '<span class="ipp-row-tag ipp-row-tag-warn">⚠ 未來日期 · 不可提交</span>';
+      } else if (!inBand) {
         tagEl.innerHTML = '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
       } else if (hasValidWeight) {
         tagEl.innerHTML = '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>';
@@ -5370,12 +5407,13 @@ function updateTravelSummary() {
       tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分 · ${days} 天</span>`;
     } else {
       const sYM = ymdToYearMonth(startDate);
-      const eYM = ymdToYearMonth(endDate);
       let reason = '不符計分條件';
-      if (bandSince && compareYearMonth(sYM, bandSince) < 0) reason = '出發日早於 Band 起始';
-      else if (cp.startYYYYMM && compareYearMonth(sYM, cp.startYYYYMM) < 0) reason = '早於疫情期間';
-      else if (cp.endYYYYMM && compareYearMonth(eYM, cp.endYYYYMM) > 0) reason = '晚於疫情期間';
+      if (isFutureDate(startDate) || isFutureDate(endDate)) reason = '未來日期不可填';
+      else if (!bandSince) reason = '請先填寫上方「當前 Band 起始年月」';
       else if (!cp.startYYYYMM || !cp.endYYYYMM) reason = '管理員未設定疫情期間';
+      else if (compareYearMonth(sYM, bandSince) < 0) reason = '出發日早於 Band 起始';
+      else if (compareYearMonth(sYM, cp.startYYYYMM) < 0) reason = '早於疫情期間';
+      else if (compareYearMonth(sYM, cp.endYYYYMM) > 0) reason = '晚於疫情期間';
       tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-warn">⚠ ${escapeHtml(reason)} · 不可提交(${days} 天)</span>`;
     }
   });
@@ -5412,10 +5450,14 @@ function updateScoreInputSummary(inp) {
     typeof o.minScore === 'number' && typeof o.maxScore === 'number' &&
     n >= o.minScore && n <= o.maxScore
   );
+  const isFuture = isFutureYearMonth(testDate);
   const expired = item.validityMonths && testDate
     ? isScoreExpired(testDate, item.validityMonths)
     : false;
-  if (expired) {
+  if (isFuture) {
+    if (lvlEl) lvlEl.textContent = '考試日期不可為未來 · 不加分';
+    if (bonusEl) bonusEl.textContent = '不加分';
+  } else if (expired) {
     if (lvlEl) lvlEl.textContent = '已過期 · 不加分';
     if (bonusEl) bonusEl.textContent = '不加分';
   } else {
@@ -5614,17 +5656,25 @@ async function handleAction(e) {
     }
     case 'detail-row-remove': {
       const rmBtn = e.currentTarget;
-      const row = rmBtn.closest('.detail-multi-row');
-      const container = row && row.parentElement;  // .detail-multi
+      const row = rmBtn.closest('.detail-multi-row, .travel-multi-row');
+      const container = row && row.closest('.detail-multi');
       if (!row || !container) break;
-      // 至少保留一列:如果這是最後一列就清空而不移除
-      const rowsLeft = container.querySelectorAll('.detail-multi-row').length;
-      if (rowsLeft <= 1) {
-        const inp = row.querySelector('input[type="text"]');
-        if (inp) inp.value = '';
-      } else {
-        row.remove();
+      // 若是 row 後面有 tag 元素(IPP / Travel),一起刪掉
+      const nextTag = row.nextElementSibling;
+      if (nextTag && nextTag.classList && nextTag.classList.contains('detail-row-tag')) {
+        nextTag.remove();
       }
+      row.remove();
+      // 若刪到一列都不剩,自動插一列空白(讓 UI 仍能繼續列舉)
+      if (container.querySelectorAll('.detail-multi-row, .travel-multi-row').length === 0) {
+        // 讓使用者可以用「+ 新增一列」自己加;不自動補(UI 最乾淨)
+      }
+      // 觸發對應 summary 重算
+      const itemId = container.dataset.itemId;
+      if (itemId === 'ipp') updateIppSummary();
+      else if (itemId === 'travel') updateTravelSummary();
+      else if (container.dataset.listing === '1') updateListedSummary(container);
+      updateAppliedTotal();
       break;
     }
     case 'copy-emp-link':
@@ -5905,6 +5955,12 @@ function collectAndValidateEmpForm() {
         const label = itemDef ? itemDef.name : itemId;
         problems.push(`${label}「${name}」: ${err}`);
       }
+      // 未來日期統一擋下(所有 detail-multi 項目都適用)
+      if (occurredAt && isFutureYearMonth(occurredAt)) {
+        const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+        const label = itemDef ? itemDef.name : itemId;
+        problems.push(`${label}「${name}」: 發生年月「${occurredAt}」不可為未來月份`);
+      }
       // IPP 額外:掛名人數必填且須是 ≥ 1 的正整數
       if (itemId === 'ipp') {
         const winp = row.querySelector('input.emp-detail-weight');
@@ -5958,6 +6014,8 @@ function collectAndValidateEmpForm() {
         const testDate = dateInp ? normalizeYearMonth(dateInp.value) : '';
         if (!testDate) {
           problems.push(`${itemDef.name}: 填了分數 ${n} 須同時填考試年月(用於判定證照有效期)`);
+        } else if (isFutureYearMonth(testDate)) {
+          problems.push(`${itemDef.name}: 考試年月「${testDate}」不可為未來月份`);
         }
       }
     }
@@ -6005,6 +6063,10 @@ function collectAndValidateEmpForm() {
       }
       if (calcTravelDays(startDate, endDate) <= 0) {
         problems.push(`Travel「${label}」: 回台日須 ≥ 出發日`);
+        return;
+      }
+      if (isFutureDate(startDate) || isFutureDate(endDate)) {
+        problems.push(`Travel「${label}」: 出發日 / 回台日不可為未來日期`);
         return;
       }
       const sYM = ymdToYearMonth(startDate);
@@ -6087,11 +6149,11 @@ async function collectAndSaveEmpForm(newStatus) {
     const expired = itemDef.validityMonths && testDate
       ? isScoreExpired(testDate, itemDef.validityMonths)
       : false;
-    if (matched && matched.id !== 'none' && matched.score > 0 && !expired) {
+    const isFuture = isFutureYearMonth(testDate);
+    if (matched && matched.id !== 'none' && matched.score > 0 && !expired && !isFuture) {
       sub.data.items[itemId] = matched.id;
       sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: testDate }];
     } else {
-      // 分數太低 or 過期 → 不加分,但仍保留分數+日期作為紀錄
       delete sub.data.items[itemId];
       sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: testDate }];
     }
@@ -7024,8 +7086,28 @@ function compareYearMonth(a, b) {
 // 考試年月是否已過有效期(以當前時間為基準)
 // testYM: 'YYYY-MM';validityMonths: 例如 24(兩年)
 // 回傳 true 表示已過期、false 表示仍有效
-function isScoreExpired(testYM, validityMonths) {
-  if (!testYM || !validityMonths) return false;
+// 判斷 YYYY-MM 是否為未來月份(與當前月份比對,含當月不算未來)
+function isFutureYearMonth(ym) {
+  if (!ym) return false;
+  const normalized = normalizeYearMonth(ym);
+  if (!normalized) return false;
+  const now = new Date();
+  const nowYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return compareYearMonth(normalized, nowYM) > 0;
+}
+
+// 判斷 YYYY-MM-DD 是否為未來日期(與今天比對,含今天不算未來)
+function isFutureDate(ymd) {
+  if (!ymd) return false;
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  if (!isFinite(y) || !isFinite(m) || !isFinite(d)) return false;
+  const input = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return input > today;
+}
+
+function isScoreExpired(testYM, validityMonths) {  if (!testYM || !validityMonths) return false;
   const normalized = normalizeYearMonth(testYM);
   if (!normalized) return false;
   const [y, m] = normalized.split('-').map(Number);
@@ -7072,6 +7154,7 @@ function validateOccurredAt(itemId, occurredAt, bandSince) {
 function isIppInBandPeriod(occurredAt, bandSince) {
   const ym = normalizeYearMonth(occurredAt);
   if (!ym || !bandSince) return false;
+  if (isFutureYearMonth(ym)) return false;  // 未來日期不算期間內
   return compareYearMonth(ym, bandSince) >= 0;
 }
 
@@ -7271,15 +7354,17 @@ function summarizeListedItem(item, detailArr, options = {}) {
   let rejectedCount = 0;
   let ineligibleCount = 0;
   const byLevel = {};
-  // 先分類每筆:accepted / pending / rejected / ineligible
-  const classified = [];  // [{d, opt, dec, lvl}]
+  const classified = [];
   (detailArr || []).forEach(d => {
-    if (bandSince && d.occurredAt) {
-      const ym = normalizeYearMonth(d.occurredAt);
-      if (ym && compareYearMonth(ym, bandSince) < 0) {
-        ineligibleCount++;
-        return;
-      }
+    const ym = normalizeYearMonth(d.occurredAt);
+    // 未來日期 → ineligible(不計分)
+    if (ym && isFutureYearMonth(ym)) {
+      ineligibleCount++;
+      return;
+    }
+    if (bandSince && ym && compareYearMonth(ym, bandSince) < 0) {
+      ineligibleCount++;
+      return;
     }
     const opt = item.options.find(o => o.id === d.level);
     const dec = d.reviewDecision || 'pending';
@@ -7401,6 +7486,7 @@ function calcTravelDays(startDate, endDate) {
 function isTravelEligible(startDate, endDate, bandSince, covidPeriod) {
   if (!startDate || !endDate) return false;
   if (calcTravelDays(startDate, endDate) <= 0) return false;
+  if (isFutureDate(startDate) || isFutureDate(endDate)) return false;  // 未來日期不計入
   if (!bandSince) return false;
   if (compareYearMonth(ymdToYearMonth(startDate), bandSince) < 0) return false;
   const cp = covidPeriod || {};
@@ -7475,8 +7561,10 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
   const arr = values && values.length > 0 ? values : [{ name: '', occurredAt: '', weight: '' }];
   const disAttr = disabled ? 'disabled' : '';
   const isIpp = itemId === 'ipp';
-  const isListing = !!levelOptions;
-  // listing-mode 時 dataAttrs 字串裡需要嵌一些識別讓 collector 找
+  // isListing 應該看 item 是否 listingMode,不是看 levelOptions(countListingMode 項目也是 listing 但沒 levelOptions)
+  const itemDefForListing = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+  const isListing = !!(itemDefForListing && itemDefForListing.listingMode);
+  // levelOptions 控制「是否渲染 level 下拉」(countListingMode 不渲染)
   const rowAttrs = dataAttrs;
   const rows = arr.map(d => {
     const err = disabled ? null : validateOccurredAt(itemId, d.occurredAt, bandSince);
@@ -7555,22 +7643,15 @@ function renderTravelDetailInputs(values, disabled, bandSince, covidPeriod) {
         if (eligible) {
           tag = `<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分 · ${days} 天</span>`;
         } else {
-          // 細分原因
           const sYM = ymdToYearMonth(d.startDate);
-          const eYM = ymdToYearMonth(d.endDate);
           const cp = covidPeriod || {};
-          let reason = '';
-          if (bandSince && compareYearMonth(sYM, bandSince) < 0) {
-            reason = '出發日早於 Band 起始';
-          } else if (cp.startYYYYMM && compareYearMonth(sYM, cp.startYYYYMM) < 0) {
-            reason = '早於疫情期間';
-          } else if (cp.endYYYYMM && compareYearMonth(eYM, cp.endYYYYMM) > 0) {
-            reason = '晚於疫情期間';
-          } else if (!cp.startYYYYMM || !cp.endYYYYMM) {
-            reason = '管理員未設定疫情期間';
-          } else {
-            reason = '不符計分條件';
-          }
+          let reason = '不符計分條件';
+          if (isFutureDate(d.startDate) || isFutureDate(d.endDate)) reason = '未來日期不可填';
+          else if (!bandSince) reason = '請先填寫上方「當前 Band 起始年月」';
+          else if (!cp.startYYYYMM || !cp.endYYYYMM) reason = '管理員未設定疫情期間';
+          else if (compareYearMonth(sYM, bandSince) < 0) reason = '出發日早於 Band 起始';
+          else if (compareYearMonth(sYM, cp.startYYYYMM) < 0) reason = '早於疫情期間';
+          else if (compareYearMonth(sYM, cp.endYYYYMM) > 0) reason = '晚於疫情期間';
           tag = `<span class="ipp-row-tag ipp-row-tag-warn">⚠ ${escapeHtml(reason)} · 不可提交(${days} 天)</span>`;
         }
       }
