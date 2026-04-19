@@ -804,6 +804,75 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
   margin-top: -4px;
 }
 
+/* IPP 細項每列下方的小 tag(計入加分 / 期間外·僅統計) */
+.detail-row-tag {
+  padding: 2px 0 0 2px;
+  margin-top: -4px;
+}
+.ipp-row-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+}
+.ipp-row-tag-in  { background: rgba(74,107,58,0.12);  color: var(--green); }
+.ipp-row-tag-out { background: rgba(176,141,58,0.15); color: var(--gold); }
+
+/* IPP 細項列裡的 weight 下拉 */
+.detail-multi-row > select[class$="-weight"] {
+  flex: 0 0 auto;
+  width: 80px;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 8px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.detail-multi-row > select[class$="-weight"]:focus { outline: none; border-color: var(--ink); }
+.detail-multi-row > select[class$="-weight"]:disabled {
+  background: transparent; opacity: 0.6; cursor: not-allowed;
+}
+
+/* IPP 自動判定 summary(取代原來的等級下拉) */
+.ipp-auto-summary {
+  background: var(--bg-paper);
+  border: 1px solid var(--line-soft);
+  padding: 12px 16px;
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.ipp-auto-summary .ipp-auto-label {
+  font-size: 10px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.ipp-auto-summary .ipp-auto-level {
+  font-family: 'Fraunces', serif;
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.ipp-auto-summary .ipp-auto-score {
+  color: var(--gold);
+  font-weight: 600;
+}
+.ipp-auto-summary .ipp-auto-stats {
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
 /* Band Since 輸入區(放在員工表單頂部) */
 .band-since-field {
   background: var(--bg-paper);
@@ -2246,18 +2315,42 @@ function renderEmployeeForm() {
                   ${isReviewed ? renderItemReviewBadge(review, item, sel) : ''}
                 </div>
                 <div class="form-item-control">
-                  <select class="emp-select" data-item="${item.id}" ${isLocked ? 'disabled' : ''}>
-                    <option value="" ${!sel ? 'selected' : ''}>-- 請選擇 --</option>
-                    ${item.options.map(o => `
-                      <option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
-                    `).join('')}
-                  </select>
+                  ${item.id === 'ipp' ? (() => {
+                    const summary = summarizeIpp(detailArr, bandSince);
+                    let levelText;
+                    if (summary.totalCount === 0) levelText = '尚未填寫';
+                    else if (summary.levelLabel) levelText = summary.levelLabel;
+                    else levelText = '無 (期間內權重不足 0.1)';
+                    return `
+                      <div class="ipp-auto-summary">
+                        <span class="ipp-auto-label">自動判定</span>
+                        <span class="ipp-auto-level">${escapeHtml(levelText)}</span>
+                        <span class="ipp-auto-score">${summary.levelScore > 0 ? '+' + summary.levelScore + ' 分' : '不加分'}</span>
+                        <span class="ipp-auto-stats">
+                          期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) ·
+                          期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) ·
+                          總 ${summary.totalCount} 筆
+                        </span>
+                      </div>
+                      <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
+                        💡 IPP 加分由系統自動判定:加總「期間內」每筆的權重 → 對應加分等級。<br>
+                        期間外的 IPP 仍可填(會出現在統計裡),但不計加分。每列右側請選 0.1 / 0.5 / 1。
+                      </div>
+                    `;
+                  })() : `
+                    <select class="emp-select" data-item="${item.id}" ${isLocked ? 'disabled' : ''}>
+                      <option value="" ${!sel ? 'selected' : ''}>-- 請選擇 --</option>
+                      ${item.options.map(o => `
+                        <option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
+                      `).join('')}
+                    </select>
+                  `}
                   ${renderDetailMultiInputs(
                     'emp-detail',
                     `data-detail-item="${item.id}"`,
                     detailArr,
                     detailHints[item.id] || '具體項目 / 紀錄',
-                    isDisabledByNone || isLocked,
+                    (item.id === 'ipp' ? false : isDisabledByNone) || isLocked,
                     item.id,
                     bandSince
                   )}
@@ -2407,7 +2500,9 @@ function renderEmpBonusForReviewer(emp) {
   const data = sub.data || {};
 
   // 沒有任何提交資料 — 員工根本還沒進過自填連結
-  const hasItems = data.items && Object.keys(data.items).length > 0;
+  // 注意:IPP 可能 items.ipp 沒設(權重 < 0.1)但 itemDetails.ipp 有資料,也要算「有」
+  const hasItems = (data.items && Object.keys(data.items).length > 0)
+                 || (data.itemDetails?.ipp && data.itemDetails.ipp.length > 0);
   const hasOthers = (data.others || 0) > 0 || (data.othersNote || '').trim();
   const isEmpty = !hasItems && !hasOthers;
 
@@ -2444,6 +2539,45 @@ function renderEmpBonusForReviewer(emp) {
   if (hasItems) {
     EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
       const sel = data.items[item.id];
+      // === IPP 特例:即使 items.ipp 沒設(權重 < 0.1)也要顯示細項供主管參考 ===
+      if (item.id === 'ipp') {
+        const detailArr = normalizeDetail(data.itemDetails?.ipp);
+        if (detailArr.length === 0) return;  // 真的完全沒填 IPP 才跳過
+        const summary = summarizeIpp(detailArr, emp.bandSinceYYYYMM);
+        const review = sub.reviewedItems?.ipp;
+        // 每筆細項列 + 期間 tag
+        const rowsHtml = detailArr.map(d => {
+          const inBand = isIppInBandPeriod(d.occurredAt, emp.bandSinceYYYYMM);
+          const tagColor = inBand ? 'var(--green)' : 'var(--gold)';
+          const tagText = inBand ? '✓ 期間內' : 'ⓘ 期間外';
+          const w = d.weight ? `權重 ${escapeHtml(String(d.weight))}` : '未填權重';
+          return `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">
+            • ${escapeHtml(d.name)}
+            ${d.occurredAt ? `<span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>` : ''}
+            <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:10px;">· ${w}</span>
+            <span style="color:${tagColor};font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em;margin-left:4px;">${tagText}</span>
+          </div>`;
+        }).join('');
+        // 顯示 IPP 自動判定 label(不顯示分數!)
+        const levelTextForReviewer = summary.totalCount === 0
+          ? '無'
+          : (summary.levelLabel || '無 (期間內權重不足 0.1)');
+        lines.push(`
+          <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
+            <div style="font-size:13px;color:var(--ink);">
+              <b>${escapeHtml(item.name)}</b>
+              <span style="color:var(--ink-soft);margin-left:6px;">— 自動判定:${escapeHtml(levelTextForReviewer)}</span>
+              ${reviewTag(review, item)}
+            </div>
+            <div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:3px;font-family:'JetBrains Mono',monospace;letter-spacing:0.04em;">
+              期間內 ${summary.inCount} 筆(權重 ${summary.inWeight}) · 期間外 ${summary.outCount} 筆(權重 ${summary.outWeight}) · 總 ${summary.totalCount} 筆
+            </div>
+            ${rowsHtml}
+          </div>
+        `);
+        return;
+      }
+      // === 一般 single 項目 ===
       if (item.type === 'single') {
         if (!sel || sel === 'none') return;
         const opt = item.options.find(o => o.id === sel);
@@ -4064,11 +4198,21 @@ async function handleAction(e) {
       const className = addBtn.dataset.class || '';
       const attrs = addBtn.dataset.attrs || '';
       const placeholder = addBtn.dataset.placeholder || '';
+      const isIpp = addBtn.dataset.isIpp === '1';
+      const weightField = isIpp ? `
+        <select class="${className}-weight" ${attrs} title="本筆 IPP 權重">
+          <option value="" selected>權重</option>
+          <option value="0.1">0.1</option>
+          <option value="0.5">0.5</option>
+          <option value="1">1</option>
+        </select>
+      ` : '';
       const tmp = document.createElement('div');
       tmp.innerHTML = `
         <div class="detail-multi-row">
           <input type="text" class="${className}" ${attrs} value="" placeholder="${escapeHtml(placeholder)}">
           <input type="month" class="${className}-ym" ${attrs} value="" title="發生年月 (YYYY-MM)">
+          ${weightField}
           <button type="button" class="detail-row-remove" data-action="detail-row-remove" title="刪除此列">✕</button>
         </div>
       `.trim();
@@ -4366,6 +4510,13 @@ function collectAndValidateEmpForm() {
         const label = itemDef ? itemDef.name : itemId;
         problems.push(`${label}「${name}」: ${err}`);
       }
+      // IPP 額外:weight 必填(0.1 / 0.5 / 1)
+      if (itemId === 'ipp') {
+        const wsel = row.querySelector('select.emp-detail-weight');
+        if (!wsel || !wsel.value) {
+          problems.push(`IPP「${name}」: 請選擇本筆權重(0.1 / 0.5 / 1)`);
+        }
+      }
     });
   });
 
@@ -4400,7 +4551,7 @@ async function collectAndSaveEmpForm(newStatus) {
     if (sel.value && sel.value !== 'none') sub.data.items[itemId] = sel.value;
   });
 
-  // 用「列」為單位配對 text + month 收集成物件陣列
+  // 用「列」為單位配對 text + month + (IPP only) weight 收集成物件陣列
   // 每列只屬於一個 itemId 或 optId(視 detail-multi 容器而定)
   document.querySelectorAll('.form-items .detail-multi').forEach(container => {
     const rows = [];
@@ -4408,9 +4559,12 @@ async function collectAndSaveEmpForm(newStatus) {
       const txt = row.querySelector('input.emp-detail, input.emp-cert-detail');
       if (!txt) return;
       const ym = row.querySelector('input[type="month"]');
+      const wsel = row.querySelector('select.emp-detail-weight, select.emp-cert-detail-weight');
       const name = (txt.value || '').trim();
       if (!name) return;
-      rows.push({ name, occurredAt: ym ? normalizeYearMonth(ym.value) : '' });
+      const obj = { name, occurredAt: ym ? normalizeYearMonth(ym.value) : '' };
+      if (wsel && wsel.value) obj.weight = wsel.value;
+      rows.push(obj);
     });
     if (rows.length === 0) return;
     // 依 text input 的 dataset 判斷屬於 single-item 還是 cert-opt
@@ -4418,13 +4572,31 @@ async function collectAndSaveEmpForm(newStatus) {
     if (!firstTxt) return;
     if (firstTxt.classList.contains('emp-detail')) {
       const itemId = firstTxt.dataset.detailItem;
-      if (sub.data.items[itemId]) sub.data.itemDetails[itemId] = rows;
+      // IPP 例外:即使 sub.data.items.ipp 還沒被設定(沒下拉了),也要存細項
+      // 自動算等級會在下面緊接做
+      if (itemId === 'ipp' || sub.data.items[itemId]) {
+        sub.data.itemDetails[itemId] = rows;
+      }
     } else {
       const optId = firstTxt.dataset.certOpt;
       const cb = document.querySelector(`.emp-multi[value="${optId}"]`);
       if (cb && cb.checked) sub.data.certDetails[optId] = rows;
     }
   });
+
+  // IPP 自動算等級:從 itemDetails.ipp + bandSinceYYYYMM 推 → 寫入 items.ipp
+  // 沒有任何 IPP 細項或加總 < 0.1 → 不設定 items.ipp(等同「無」)
+  {
+    const empObj = state.employees.find(e => e.id === empId);
+    const bandSince = empObj && empObj.bandSinceYYYYMM;
+    const ippDetails = sub.data.itemDetails.ipp || [];
+    const { optionId } = computeIppLevelFromDetails(ippDetails, bandSince);
+    if (optionId && optionId !== 'none') {
+      sub.data.items.ipp = optionId;
+    } else {
+      delete sub.data.items.ipp;  // 沒達 0.1 就不算
+    }
+  }
 
   // multi (cert) checkbox — 分組收集
   const multiByItem = {};
@@ -4775,9 +4947,12 @@ async function handleSaveBonusEmp(empId) {
       const txt = row.querySelector('input.bonus-detail, input.bonus-cert-detail');
       if (!txt) return;
       const ym = row.querySelector('input[type="month"]');
+      const wsel = row.querySelector('select.bonus-detail-weight, select.bonus-cert-detail-weight');
       const name = (txt.value || '').trim();
       if (!name) return;
-      rows.push({ name, occurredAt: ym ? normalizeYearMonth(ym.value) : '' });
+      const obj = { name, occurredAt: ym ? normalizeYearMonth(ym.value) : '' };
+      if (wsel && wsel.value) obj.weight = wsel.value;
+      rows.push(obj);
     });
     if (firstTxt.classList.contains('bonus-detail')) {
       const itemId = firstTxt.dataset.detailItem;
@@ -5113,6 +5288,7 @@ function yearMonthNYearsAgo(years) {
 // 驗證單一細項的 occurredAt 是否符合規則
 // 回傳 null 表示通過,否則回傳錯誤訊息字串
 // - cert 類(itemId === 'cert'):必須在現在往前 2 年以內
+// - ipp 類:**期間內外都允許**(期間外仍可填,只是不計分),只要月份格式合法即可
 // - 其他:必須 >= bandSince
 function validateOccurredAt(itemId, occurredAt, bandSince) {
   const ym = normalizeYearMonth(occurredAt);
@@ -5122,6 +5298,8 @@ function validateOccurredAt(itemId, occurredAt, bandSince) {
     if (compareYearMonth(ym, twoYearsAgo) < 0) {
       return `證照須在最近 2 年內(${twoYearsAgo} 之後)`;
     }
+  } else if (itemId === 'ipp') {
+    // 不擋:期間內外都可填,只要月份格式合法
   } else {
     if (!bandSince) return '請先填寫當前 Band 起始年月';
     if (compareYearMonth(ym, bandSince) < 0) {
@@ -5129,6 +5307,65 @@ function validateOccurredAt(itemId, occurredAt, bandSince) {
     }
   }
   return null;
+}
+
+// IPP 一筆是否在 Band 期間內(true=計加分;false=僅統計、不計分)
+function isIppInBandPeriod(occurredAt, bandSince) {
+  const ym = normalizeYearMonth(occurredAt);
+  if (!ym || !bandSince) return false;
+  return compareYearMonth(ym, bandSince) >= 0;
+}
+
+// IPP 細項一筆的權重(回傳 number,空值或非數字回 0)
+function getIppWeight(detail) {
+  const w = parseFloat(detail && detail.weight);
+  return isFinite(w) && w > 0 ? w : 0;
+}
+
+// 從 detail 陣列(已 normalize)推算 IPP 期間內權重總和 → 對應到 EXTRA_CONTRIBUTION_ITEMS 裡 ipp 的 option id
+// sum < 0.1 → 'none';0.1 <= sum < 0.5 → 'lt05';...;sum > 3 → 'gt3'
+function computeIppLevelFromDetails(detailArr, bandSince) {
+  let sumIn = 0;
+  (detailArr || []).forEach(d => {
+    if (isIppInBandPeriod(d.occurredAt, bandSince)) {
+      sumIn += getIppWeight(d);
+    }
+  });
+  if (sumIn < 0.1) return { optionId: 'none', sum: sumIn };
+  if (sumIn < 0.5) return { optionId: 'lt05', sum: sumIn };
+  if (sumIn < 1)   return { optionId: 'lt1',  sum: sumIn };
+  if (sumIn === 1) return { optionId: 'eq1',  sum: sumIn };
+  if (sumIn <= 2)  return { optionId: 'lt2',  sum: sumIn };
+  if (sumIn <= 3)  return { optionId: 'lt3',  sum: sumIn };
+  return { optionId: 'gt3', sum: sumIn };
+}
+
+// IPP 統計用 — 回傳 { inCount, outCount, totalCount, inWeight, outWeight, levelOptionId, levelLabel, levelScore }
+function summarizeIpp(detailArr, bandSince) {
+  let inCount = 0, outCount = 0, inWeight = 0, outWeight = 0;
+  (detailArr || []).forEach(d => {
+    const w = getIppWeight(d);
+    if (isIppInBandPeriod(d.occurredAt, bandSince)) {
+      inCount++;
+      inWeight += w;
+    } else {
+      outCount++;
+      outWeight += w;
+    }
+  });
+  // 取 ipp item def
+  const ippItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === 'ipp');
+  const levelInfo = computeIppLevelFromDetails(detailArr, bandSince);
+  const opt = ippItem ? ippItem.options.find(o => o.id === levelInfo.optionId) : null;
+  // round to 2 decimals for display
+  const r2 = x => Math.round(x * 100) / 100;
+  return {
+    inCount, outCount, totalCount: inCount + outCount,
+    inWeight: r2(inWeight), outWeight: r2(outWeight),
+    levelOptionId: levelInfo.optionId,
+    levelLabel: opt ? opt.label : '',
+    levelScore: opt ? opt.score : 0,
+  };
 }
 
 // 渲染「可多列」的細項輸入群組 — 每列含名稱 + 發生年月 + 刪除鈕
@@ -5141,25 +5378,45 @@ function validateOccurredAt(itemId, occurredAt, bandSince) {
 // bandSince: 當前 Band 起始年月,用於驗證
 // isCert:    是否為 cert 類(只有 placeholder 月份範例會略有差異)
 function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disabled, itemId, bandSince) {
-  const arr = values && values.length > 0 ? values : [{ name: '', occurredAt: '' }];
+  const arr = values && values.length > 0 ? values : [{ name: '', occurredAt: '', weight: '' }];
   const disAttr = disabled ? 'disabled' : '';
+  const isIpp = itemId === 'ipp';
   const rows = arr.map(d => {
     const err = disabled ? null : validateOccurredAt(itemId, d.occurredAt, bandSince);
     // 只在「使用者有填 name 但 occurredAt 有問題」時顯示紅字(避免空列也飄紅)
     const showErr = err && (d.name || d.occurredAt);
+    // IPP 額外:期間判定 tag(只有當 name 有填、月份合法時才顯示)
+    let ippTag = '';
+    if (isIpp && d.name && normalizeYearMonth(d.occurredAt)) {
+      const inBand = isIppInBandPeriod(d.occurredAt, bandSince);
+      ippTag = inBand
+        ? '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>'
+        : '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
+    }
+    // IPP weight 下拉
+    const weightField = isIpp ? `
+      <select class="${className}-weight" ${dataAttrs} ${disAttr} title="本筆 IPP 權重">
+        <option value=""    ${!d.weight ? 'selected' : ''}>權重</option>
+        <option value="0.1" ${String(d.weight) === '0.1' ? 'selected' : ''}>0.1</option>
+        <option value="0.5" ${String(d.weight) === '0.5' ? 'selected' : ''}>0.5</option>
+        <option value="1"   ${String(d.weight) === '1'   ? 'selected' : ''}>1</option>
+      </select>
+    ` : '';
     return `
     <div class="detail-multi-row">
       <input type="text" class="${className}" ${dataAttrs} value="${escapeHtml(d.name)}" placeholder="${escapeHtml(placeholder)}" ${disAttr}>
       <input type="month" class="${className}-ym" ${dataAttrs} value="${escapeHtml(d.occurredAt)}" ${disAttr} title="發生年月 (YYYY-MM)">
+      ${weightField}
       <button type="button" class="detail-row-remove" data-action="detail-row-remove" title="刪除此列" ${disAttr}>✕</button>
     </div>
+    ${ippTag ? `<div class="detail-row-tag">${ippTag}</div>` : ''}
     ${showErr ? `<div class="detail-row-err">⚠ ${escapeHtml(err)}</div>` : ''}
     `;
   }).join('');
   return `
     <div class="detail-multi" data-item-id="${escapeHtml(itemId || '')}">
       ${rows}
-      <button type="button" class="detail-row-add" data-action="detail-row-add" data-class="${className}" data-attrs="${escapeHtml(dataAttrs)}" data-placeholder="${escapeHtml(placeholder)}" ${disAttr}>+ 新增一列</button>
+      <button type="button" class="detail-row-add" data-action="detail-row-add" data-class="${className}" data-attrs="${escapeHtml(dataAttrs)}" data-placeholder="${escapeHtml(placeholder)}" data-is-ipp="${isIpp ? '1' : ''}" ${disAttr}>+ 新增一列</button>
     </div>
   `;
 }
