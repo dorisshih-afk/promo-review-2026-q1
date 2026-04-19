@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.4';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.5';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -7501,6 +7501,38 @@ function migrateListedDetails(item, sub, data) {
 function summarizeListedItem(item, detailArr, options = {}) {
   const isPreview = !!options.preview;
   const bandSince = options.bandSince || '';
+
+  // IPP 特例:走 summarizeIpp 的邏輯(accepted 細項 weight 加總對應等級)
+  if (item.ippMode) {
+    const ippSum = summarizeIpp(detailArr, bandSince, { onlyAccepted: !isPreview });
+    return {
+      acceptedCount: ippSum.acceptedCount,
+      pendingCount: ippSum.pendingCount,
+      rejectedCount: ippSum.rejectedCount,
+      ineligibleCount: 0, futureCount: 0, earlyCount: 0,
+      totalCount: (detailArr || []).length,
+      acceptedScore: ippSum.levelScore,
+      previewScore: ippSum.levelScore,
+      totalScore: ippSum.levelScore,
+      byLevel: {}
+    };
+  }
+  // Travel 特例:走 summarizeTravel 的邏輯(accepted 段天數加總對應等級)
+  if (item.travelMode) {
+    const tSum = summarizeTravel(detailArr, bandSince, state.covidPeriod || {}, { onlyAccepted: !isPreview });
+    return {
+      acceptedCount: tSum.acceptedCount,
+      pendingCount: tSum.pendingCount,
+      rejectedCount: tSum.rejectedCount,
+      ineligibleCount: 0, futureCount: 0, earlyCount: 0,
+      totalCount: (detailArr || []).length,
+      acceptedScore: tSum.levelScore,
+      previewScore: tSum.levelScore,
+      totalScore: tSum.levelScore,
+      byLevel: {}
+    };
+  }
+
   let acceptedCount = 0;
   let pendingCount = 0;
   let rejectedCount = 0;
