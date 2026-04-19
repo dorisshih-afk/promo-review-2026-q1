@@ -2266,9 +2266,15 @@ function renderEmployeeForm() {
     jlpt_n1: '取得日期'
   };
 
-  // 計算原始申請總分(員工角度看)
+  // 計算原始申請總分(員工角度看):listing-mode 用「所有列預估加總」(preview)
   let appliedTotal = 0;
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (item.listingMode) {
+      const arr = migrateListedDetails(item, sub, data);
+      const summary = summarizeListedItem(item, arr, { preview: true });
+      appliedTotal += summary.totalScore;
+      return;
+    }
     const sel = data.items?.[item.id];
     if (item.type === 'single') {
       if (!sel || sel === 'none') return;
@@ -4025,6 +4031,12 @@ function renderReviewDetail(empId) {
   // 計算當下審核狀態下的加分(尚未存入 extraBonus 之前的預覽)
   let previewBonus = 0;
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (item.listingMode) {
+      const arr = migrateListedDetails(item, sub, data);
+      const summary = summarizeListedItem(item, arr);  // 不 preview,只算 accepted
+      previewBonus += summary.acceptedScore;
+      return;
+    }
     const sel = data.items?.[item.id];
     if (item.type === 'single') {
       if (!sel || sel === 'none') return;
@@ -4783,6 +4795,12 @@ function attachHandlers() {
     container.addEventListener('input', updateTravelSummary);
     container.addEventListener('change', updateTravelSummary);
   });
+  // Listing-mode summary 即時重算(STAMP 等)
+  document.querySelectorAll('.detail-multi[data-listing="1"]').forEach(container => {
+    const handler = () => updateListedSummary(container);
+    container.addEventListener('input', handler);
+    container.addEventListener('change', handler);
+  });
   // bandSince 改變也要重算(IPP 跟 Travel 都會被影響)
   const bandSinceEl = document.querySelector('.emp-band-since');
   if (bandSinceEl) {
@@ -4946,6 +4964,37 @@ function updateTravelSummary() {
       tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-warn">⚠ ${escapeHtml(reason)} · 不可提交(${days} 天)</span>`;
     }
   });
+}
+
+// Listing-mode summary 即時重算(STAMP 等):從 DOM 收每列的 level + name 算總和
+// 因為員工填表階段所有列都還是 pending,我們用 preview = true 顯示「預估」分數
+function updateListedSummary(container) {
+  if (!container) return;
+  const itemId = container.dataset.itemId;
+  if (!itemId) return;
+  const item = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+  if (!item || !item.listingMode) return;
+  const summaryEl = document.querySelector(`[data-listed-summary][data-listed-item="${itemId}"]`);
+  if (!summaryEl) return;
+  // 從 DOM 收 rows
+  const rows = [];
+  container.querySelectorAll('.detail-multi-row').forEach(row => {
+    const txt = row.querySelector('input.emp-detail');
+    const lvl = row.querySelector('select.emp-detail-level');
+    if (!txt) return;
+    const name = (txt.value || '').trim();
+    if (!name) return;
+    rows.push({ name, level: lvl ? lvl.value : '' });
+  });
+  const summary = summarizeListedItem(item, rows, { preview: true });
+  const lvlEl = summaryEl.querySelector('[data-listed-level]');
+  const scoreEl = summaryEl.querySelector('[data-listed-score]');
+  const statsEl = summaryEl.querySelector('[data-listed-stats]');
+  if (lvlEl) lvlEl.textContent = summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列';
+  if (scoreEl) scoreEl.textContent = summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分';
+  if (statsEl) statsEl.textContent = summary.totalCount === 0
+    ? '請列舉每個 KI 項目'
+    : `主管審核後實際採用「接受」筆數的等級分數加總`;
 }
 
 function updateLiveTotal() {
