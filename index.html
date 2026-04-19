@@ -5691,6 +5691,27 @@ function collectAndValidateEmpForm() {
     });
   });
 
+  // Listing-mode 強制表態:每個 listing-mode 項目必須「有列舉至少一筆有效列」或「勾選本項無可列舉」
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (!item.listingMode) return;
+    const noneCb = document.querySelector(`input.emp-listed-none[data-item="${item.id}"]`);
+    const noneFlag = !!(noneCb && noneCb.checked);
+    if (noneFlag) return;  // 勾了「無可列舉」→ OK
+    // 否則必須至少列一筆有效(有填 name)
+    const container = document.querySelector(`.detail-multi[data-item-id="${item.id}"][data-listing="1"]`);
+    let hasAny = false;
+    if (container) {
+      container.querySelectorAll('.detail-multi-row').forEach(row => {
+        const txt = row.querySelector('input.emp-detail');
+        const name = txt ? (txt.value || '').trim() : '';
+        if (name) hasAny = true;
+      });
+    }
+    if (!hasAny) {
+      problems.push(`${item.name}: 請列舉至少一筆,或勾選「本項無可列舉」明確表態`);
+    }
+  });
+
   // Travel 驗證:每段「出發日 + 回台日」都需填齊;回台 ≥ 出發;
   // 出發日的「年月」必須在 Band 期間內 ∧ 在疫情期間內(否則擋下提交)
   {
