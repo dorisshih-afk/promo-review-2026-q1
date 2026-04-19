@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.13';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.14';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -4576,14 +4576,19 @@ function renderEmployeesTab() {
   return `
     <div class="admin-section">
       <h3>新增員工</h3>
-      <div class="add-form" style="grid-template-columns: 1fr 1fr 2fr 100px auto;">
+      <div class="add-form" style="grid-template-columns: 1fr 1fr 1.5fr 100px auto;">
         <input type="text" id="newEmpName" placeholder="中文姓名">
         <input type="text" id="newEmpEnName" placeholder="英文名(例:Allen.Lee)">
-        <input type="text" id="newEmpDept" placeholder="部門(需含括號 ex. ...(Wilbur))">
+        <select id="newEmpDept">
+          <option value="">部門</option>
+          <option value="sw1">SW1 · 軟體設計一部(Wilbur)</option>
+          <option value="sw2">SW2 · 軟體設計二部(Doris)</option>
+          <option value="ec">EC · 平臺韌體開發部(Roy)</option>
+          <option value="sa1">SA1 · 軟體應用設計一部(Kegin)</option>
+          <option value="sa2">SA2 · 軟體應用設計二部(Dash)</option>
+        </select>
         <select id="newEmpBand">
           <option value="">目前職等</option>
-          <option value="3">Band 3</option>
-          <option value="4">Band 4</option>
           <option value="5">Band 5</option>
           <option value="6">Band 6</option>
           <option value="7">Band 7</option>
@@ -4593,7 +4598,7 @@ function renderEmployeesTab() {
         <button class="btn" data-action="add-employee">新增</button>
       </div>
       <div style="font-size:12px;color:var(--ink-muted);margin-bottom:18px;font-family:'JetBrains Mono',monospace;letter-spacing:0.06em;">
-        ※ 部門名稱請保留括號內的主管識別字(例:臺北軟體設計一部(Wilbur)),系統會根據此括號自動規避主管。
+        ※ 選擇部門後,系統會自動帶入主管規避設定(避免主管評分到自己部門員工)。
       </div>
       ${state.employees.length === 0 ? '<div class="empty">尚未建立任何員工</div>' :
         sortedBands.map(band => {
@@ -6529,13 +6534,24 @@ function handleAdminSubmit() {
   }
 }
 
+// 部門簡稱 → 完整名稱(含主管括號)對應表
+const DEPT_SHORTCODE_MAP = {
+  sw1: '臺北軟體設計一部(Wilbur)',
+  sw2: '臺北軟體設計二部(Doris)',
+  ec:  '臺北平臺韌體開發部(Roy)',
+  sa1: '臺北軟體應用設計一部(Kegin)',
+  sa2: '臺北軟體應用設計二部(Dash)',
+};
+
 async function handleAddEmployee() {
   const name = document.getElementById('newEmpName').value.trim();
   const enName = document.getElementById('newEmpEnName').value.trim();
-  const dept = document.getElementById('newEmpDept').value.trim();
+  const deptCode = document.getElementById('newEmpDept').value.trim();
   const bandStr = document.getElementById('newEmpBand').value;
   if (!name) { toast('請輸入員工姓名'); return; }
-  const newEmp = { id: uid('emp'), name, dept: dept || '—' };
+  // 簡稱 → 完整部門名(含主管括號,讓規避邏輯能運作)
+  const dept = DEPT_SHORTCODE_MAP[deptCode] || '—';
+  const newEmp = { id: uid('emp'), name, dept };
   if (enName) {
     newEmp.enName = enName;
     newEmp.email = enName + '@lcfuturecenter.com';
