@@ -7527,7 +7527,7 @@ function summarizeListedItem(item, detailArr, options = {}) {
     if (dec === 'accepted') { acceptedCount++; byLevel[lvl].acceptedCount++; }
     else if (dec === 'rejected') { rejectedCount++; byLevel[lvl].rejectedCount++; }
     else { pendingCount++; byLevel[lvl].pendingCount++; }
-    classified.push({ opt, dec, lvl });
+    classified.push({ d, opt, dec, lvl });
   });
 
   // 計分:三種模式
