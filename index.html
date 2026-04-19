@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.19';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.20';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -5965,10 +5965,11 @@ function collectAndValidateEmpForm() {
           }
         }
       }
-      // listing-mode(STAMP 等):每列必須選等級(countListingMode 除外)
+      // listing-mode(STAMP 等):每列必須選等級
+      // 例外:countListingMode / ippMode / travelMode 沒 level 下拉,跳過
       if (container.dataset.listing === '1') {
         const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
-        if (itemDef && itemDef.countListingMode) {
+        if (itemDef && (itemDef.countListingMode || itemDef.ippMode || itemDef.travelMode)) {
           // no level field, skip
         } else {
           const lvlSel = row.querySelector('select.emp-detail-level');
@@ -6015,6 +6016,7 @@ function collectAndValidateEmpForm() {
   // Listing-mode 強制表態:每個 listing-mode 項目必須「有列舉至少一筆有效列」或「勾選本項無可列舉」
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
     if (!item.listingMode) return;
+    if (item.id === 'travel') return;  // Travel 走獨立 validator,不在此要求列舉或 noneFlag
     const noneCb = document.querySelector(`input.emp-listed-none[data-item="${item.id}"]`);
     const noneFlag = !!(noneCb && noneCb.checked);
     if (noneFlag) return;  // 勾了「無可列舉」→ OK
