@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.10';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.12';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2869,7 +2869,7 @@ function renderEmpBonusForReviewer(emp) {
   const lines = [];
   if (hasItems) {
     EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
-      const sel = data.items[item.id];
+      const sel = data.items?.[item.id];
       // === Listing-mode 特例:每筆細項各自有等級 + 審核狀態 ===
       if (item.listingMode) {
         const noneFlag = !!data.itemNoneFlags?.[item.id];
@@ -4950,6 +4950,13 @@ function renderSettingsTab() {
       </div>
       <div class="list-row">
         <div class="info">
+          <div class="primary">清除所有加分項(Extra Contribution)測試資料</div>
+          <div class="secondary">清除員工自填、審核結果、已套用的加分。保留人員、維度、評分不動。適合測試階段使用。</div>
+        </div>
+        <button class="btn danger small" data-action="clear-extra-bonus">清除加分項</button>
+      </div>
+      <div class="list-row">
+        <div class="info">
           <div class="primary">重置整個系統</div>
           <div class="secondary">刪除所有人員、維度、評分,回復為初始範例資料</div>
         </div>
@@ -5917,6 +5924,9 @@ async function handleAction(e) {
       break;
     case 'clear-scores':
       await handleClearScores();
+      break;
+    case 'clear-extra-bonus':
+      await handleClearExtraBonus();
       break;
     case 'reset-all':
       await handleResetAll();
@@ -6914,6 +6924,15 @@ async function handleClearScores() {
   state.scores = {};
   await saveState(state);
   toast('所有評分已清除');
+  render();
+}
+
+async function handleClearExtraBonus() {
+  if (!confirm('確定清除所有 Extra Contribution 加分項測試資料?\n\n會清除:員工自填內容、審核結果、已套用的加分。\n不會清除:人員、維度、評分。\n\n此動作無法復原。')) return;
+  state.empSubmissions = {};
+  state.extraBonus = {};
+  await saveState(state);
+  toast('所有加分項資料已清除');
   render();
 }
 
