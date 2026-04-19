@@ -800,6 +800,22 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
 .detail-multi-row > input[type="date"]:disabled {
   background: transparent; opacity: 0.6; cursor: not-allowed;
 }
+/* Listing-mode 等級下拉(STAMP 等)— 跟其他 input 同底色 */
+.detail-multi-row > select[class$="-level"] {
+  flex: 0 0 auto;
+  min-width: 180px;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 8px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.detail-multi-row > select[class$="-level"]:focus { outline: none; border-color: var(--ink); }
+.detail-multi-row > select[class$="-level"]:disabled {
+  background: transparent; opacity: 0.6; cursor: not-allowed;
+}
 /* Travel 出差段名稱 input(text) */
 .travel-multi-row > input.emp-travel-name {
   flex: 1; min-width: 0;
@@ -1830,7 +1846,16 @@ function applyReviewedSubmission(empId) {
     // listing-mode:細項各自的 reviewDecision 才是審核結果(整項 review 不適用)
     if (item.listingMode) {
       const arr = normalizeDetail(data.itemDetails?.[item.id]);
-      const accepted = arr.filter(d => d.reviewDecision === 'accepted');
+      const bandSince = state.employees.find(e => e.id === empId)?.bandSinceYYYYMM;
+      const accepted = arr.filter(d => {
+        if (d.reviewDecision !== 'accepted') return false;
+        // 額外保險:期間外的列即使被誤接受也不寫入
+        if (bandSince && d.occurredAt) {
+          const ym = normalizeYearMonth(d.occurredAt);
+          if (ym && compareYearMonth(ym, bandSince) < 0) return false;
+        }
+        return true;
+      });
       if (accepted.length > 0) {
         result.itemDetails[item.id] = accepted;
       }
@@ -2271,7 +2296,7 @@ function renderEmployeeForm() {
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
     if (item.listingMode) {
       const arr = migrateListedDetails(item, sub, data);
-      const summary = summarizeListedItem(item, arr, { preview: true });
+      const summary = summarizeListedItem(item, arr, { preview: true, bandSince });
       appliedTotal += summary.totalScore;
       return;
     }
@@ -2427,7 +2452,7 @@ function renderEmployeeForm() {
                     `;
                   })() : item.listingMode ? (() => {
                     const listedArr = migrateListedDetails(item, sub, data);
-                    const summary = summarizeListedItem(item, listedArr, { preview: true });
+                    const summary = summarizeListedItem(item, listedArr, { preview: true, bandSince });
                     return `
                       <div class="ipp-auto-summary" data-listed-summary data-listed-item="${item.id}">
                         <span class="ipp-auto-label">自動計算</span>
@@ -2660,7 +2685,7 @@ function renderEmpBonusForReviewer(emp) {
       if (item.listingMode) {
         const detailArr = migrateListedDetails(item, sub, data);
         if (detailArr.length === 0) return;
-        const summary = summarizeListedItem(item, detailArr);
+        const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
         const rowsHtml = detailArr.map(d => {
           const opt = item.options.find(o => o.id === d.level);
           const optLabel = opt ? opt.label : '(未設等級)';
@@ -3424,7 +3449,7 @@ function renderEmpBonusForAdmin(emp) {
     if (item.listingMode) {
       const detailArr = migrateListedDetails(item, sub, data);
       if (detailArr.length === 0) return;
-      const summary = summarizeListedItem(item, detailArr);
+      const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
       const rowsHtml = detailArr.map(d => {
         const opt = item.options.find(o => o.id === d.level);
         const optLabel = opt ? opt.label : '(未設等級)';
@@ -4033,7 +4058,7 @@ function renderReviewDetail(empId) {
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
     if (item.listingMode) {
       const arr = migrateListedDetails(item, sub, data);
-      const summary = summarizeListedItem(item, arr);  // 不 preview,只算 accepted
+      const summary = summarizeListedItem(item, arr, { bandSince: emp.bandSinceYYYYMM });  // 不 preview,只算 accepted
       previewBonus += summary.acceptedScore;
       return;
     }
@@ -4118,7 +4143,7 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
   if (item.listingMode) {
     const detailArr = migrateListedDetails(item, sub, data);
     if (detailArr.length === 0) return '';
-    const summary = summarizeListedItem(item, detailArr);  // 不 preview,純看實際 accepted
+    const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });  // 不 preview,純看實際 accepted
     const rowsHtml = detailArr.map((d, idx) => {
       const opt = item.options.find(o => o.id === d.level);
       const optLabel = opt ? opt.label : '(未設等級)';
@@ -4801,10 +4826,14 @@ function attachHandlers() {
     container.addEventListener('input', handler);
     container.addEventListener('change', handler);
   });
-  // bandSince 改變也要重算(IPP 跟 Travel 都會被影響)
+  // bandSince 改變也要重算(IPP / Travel / listing-mode 都會被影響)
   const bandSinceEl = document.querySelector('.emp-band-since');
   if (bandSinceEl) {
-    bandSinceEl.addEventListener('change', () => { updateIppSummary(); updateTravelSummary(); });
+    bandSinceEl.addEventListener('change', () => {
+      updateIppSummary();
+      updateTravelSummary();
+      document.querySelectorAll('.detail-multi[data-listing="1"]').forEach(c => updateListedSummary(c));
+    });
   }
 }
 
@@ -4976,25 +5005,39 @@ function updateListedSummary(container) {
   if (!item || !item.listingMode) return;
   const summaryEl = document.querySelector(`[data-listed-summary][data-listed-item="${itemId}"]`);
   if (!summaryEl) return;
-  // 從 DOM 收 rows
+  // 從 DOM 收 rows(含 occurredAt 跟 level)
   const rows = [];
   container.querySelectorAll('.detail-multi-row').forEach(row => {
     const txt = row.querySelector('input.emp-detail');
     const lvl = row.querySelector('select.emp-detail-level');
+    const ym = row.querySelector('input[type="month"]');
     if (!txt) return;
     const name = (txt.value || '').trim();
     if (!name) return;
-    rows.push({ name, level: lvl ? lvl.value : '' });
+    rows.push({
+      name,
+      level: lvl ? lvl.value : '',
+      occurredAt: ym ? normalizeYearMonth(ym.value) : ''
+    });
   });
-  const summary = summarizeListedItem(item, rows, { preview: true });
+  // 讀目前 bandSince(可能員工剛改)
+  const bandSinceEl = document.querySelector('.emp-band-since');
+  const bandSince = bandSinceEl ? normalizeYearMonth(bandSinceEl.value) : '';
+  const summary = summarizeListedItem(item, rows, { preview: true, bandSince });
   const lvlEl = summaryEl.querySelector('[data-listed-level]');
   const scoreEl = summaryEl.querySelector('[data-listed-score]');
   const statsEl = summaryEl.querySelector('[data-listed-stats]');
   if (lvlEl) lvlEl.textContent = summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列';
   if (scoreEl) scoreEl.textContent = summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分';
-  if (statsEl) statsEl.textContent = summary.totalCount === 0
-    ? '請列舉每個 KI 項目'
-    : `主管審核後實際採用「接受」筆數的等級分數加總`;
+  if (statsEl) {
+    if (summary.totalCount === 0) {
+      statsEl.textContent = '請列舉每個 KI 項目';
+    } else if (summary.ineligibleCount > 0) {
+      statsEl.innerHTML = `<span style="color:var(--accent);">⚠ ${summary.ineligibleCount} 筆早於 Band 起始,不會計入</span>`;
+    } else {
+      statsEl.textContent = '主管審核後實際採用「接受」筆數的等級分數加總';
+    }
+  }
 }
 
 function updateLiveTotal() {
@@ -6567,11 +6610,21 @@ function migrateListedDetails(item, sub, data) {
 // isPreview = true → 視所有 pending 為 accepted(讓員工看潛在最高分)
 function summarizeListedItem(item, detailArr, options = {}) {
   const isPreview = !!options.preview;  // 員工頁顯示預估時用 true
+  const bandSince = options.bandSince || '';  // 若提供,early-than-band 列不算分(只算 ineligibleCount)
   let acceptedScore = 0, acceptedCount = 0;
   let pendingScore = 0, pendingCount = 0;
   let rejectedCount = 0;
-  const byLevel = {};  // {level: {acceptedCount, pendingCount, rejectedCount}}
+  let ineligibleCount = 0;  // 早於 Band 期間的列
+  const byLevel = {};
   (detailArr || []).forEach(d => {
+    // 期間檢查:若有 bandSince 且 occurredAt 早於它,直接視為 ineligible(不計分,也不歸入 accept/pending/reject)
+    if (bandSince && d.occurredAt) {
+      const ym = normalizeYearMonth(d.occurredAt);
+      if (ym && compareYearMonth(ym, bandSince) < 0) {
+        ineligibleCount++;
+        return;
+      }
+    }
     const opt = item.options.find(o => o.id === d.level);
     const score = opt ? opt.score : 0;
     const dec = d.reviewDecision || 'pending';
@@ -6592,11 +6645,12 @@ function summarizeListedItem(item, detailArr, options = {}) {
   });
   const totalScore = isPreview ? acceptedScore + pendingScore : acceptedScore;
   return {
-    totalScore,                            // 實際採用的加分(preview mode 包含 pending)
+    totalScore,
     acceptedScore, acceptedCount,
     pendingScore, pendingCount,
     rejectedCount,
-    totalCount: acceptedCount + pendingCount + rejectedCount,
+    ineligibleCount,
+    totalCount: acceptedCount + pendingCount + rejectedCount + ineligibleCount,
     byLevel,
   };
 }
