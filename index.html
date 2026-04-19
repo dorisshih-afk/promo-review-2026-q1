@@ -2993,7 +2993,7 @@ function renderStatsTab() {
                 <th class="num">${bonusMode ? '加分後總分' : '平均總分'}</th>
                 <th class="num">平均單項</th>
                 <th class="num" style="width:60px;">加分</th>
-                <th class="num" style="width:90px;" title="員工自填的 IPP 數量(期間內 + 期間外 / 總數)">IPP 數</th>
+                <th class="num" style="width:90px;" title="員工自填的 IPP 數量(總數,以及期間內/期間外的拆分)">IPP 數<br><span style="font-weight:400;font-size:9px;color:var(--ink-muted);text-transform:none;letter-spacing:0;">總 / 內·外</span></th>
                 <th class="num">評分人數</th>
                 <th style="width:90px;"></th>
               </tr>
@@ -3018,9 +3018,9 @@ function renderStatsTab() {
                     <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && trimMode ? '<span class="trim-tag">已排除</span>' : ''}${bonusMode && r.bonus > 0 ? '<span class="bonus-tag" title="加分項已縮為 10%(原 +' + r.bonus + ' → 實際貢獻 +' + (r.bonus * 0.1).toFixed(2) + ')">+' + r.bonus + '×10%</span>' : ''}</td>
                     <td class="num ${disqualified ? 'disqualified-num' : ''}">${fmt(dimAvgForJudge, 2)}</td>
                     <td class="num" style="color:${r.bonus > 0 ? 'var(--gold)' : 'var(--ink-muted)'};font-weight:${r.bonus > 0 ? '600' : '400'};">${r.bonus > 0 ? '+' + r.bonus : '—'}</td>
-                    <td class="num" title="${ippSum ? `期間內 ${ippSum.inCount} 筆 / 期間外 ${ippSum.outCount} 筆` : '員工未填 IPP'}" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${ippSum && ippSum.totalCount > 0 ? 'var(--ink)' : 'var(--ink-muted)'};">
+                    <td class="num" title="${ippSum ? `期間內 ${ippSum.inCount} 筆 · 期間外 ${ippSum.outCount} 筆` : '員工未填 IPP'}" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${ippSum && ippSum.totalCount > 0 ? 'var(--ink)' : 'var(--ink-muted)'};">
                       ${ippSum && ippSum.totalCount > 0
-                        ? `<b>${ippSum.totalCount}</b><span style="color:var(--ink-muted);font-size:10px;"> (${ippSum.inCount}+${ippSum.outCount})</span>`
+                        ? `<b>${ippSum.totalCount}</b><br><span style="color:var(--ink-muted);font-size:10px;font-weight:400;">${ippSum.inCount}內 / ${ippSum.outCount}外</span>`
                         : '—'}
                     </td>
                     <td class="num">${r.count} / ${r.eligibleMgrCount}</td>
