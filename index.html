@@ -1565,12 +1565,18 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'innovation', name: 'Innovation Project / Proposal', type: 'single',
+    listingMode: true, countListingMode: true,
+    note: '逐筆列舉 Innovation 項目;主管逐筆審核,系統按接受筆數對應等級:1 筆 +1、2 筆 +2、≥3 筆 +3',
     options: [
-      { id: 'none', label: '無', score: 0 },
-      { id: '1', label: '列舉項目 = 1', score: 1 },
-      { id: '2', label: '列舉項目 = 2', score: 2 },
-      { id: '3plus', label: '列舉項目 ≥ 3', score: 3 }
-    ]
+      { id: 'listed', label: '(已列舉)', score: 1 }  // 等級僅供資料結構使用,實際分數走 levelCaps
+    ],
+    levelCaps: {
+      listed: [
+        { count: 1, score: 1 },
+        { count: 2, score: 2 },
+        { count: 3, score: 3 }
+      ]
+    }
   },
   {
     id: 'ipp', name: 'IPP Amount (VTT/NTICP Approved)', type: 'single',
@@ -1609,24 +1615,48 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'nfi', name: 'NFI / POC', type: 'single',
-    note: 'NFI 與 POC 項目合併計數',
+    listingMode: true, countListingMode: true,
+    note: 'NFI 與 POC 合併計數;主管逐筆審核,系統按接受筆數對應等級:1 筆 +1、2 筆 +1.2、≥3 筆 +1.4',
     options: [
-      { id: 'none', label: '無', score: 0 },
-      { id: '1', label: '列舉項目 = 1', score: 1 },
-      { id: '2', label: '列舉項目 = 2', score: 1.2 },
-      { id: '3plus', label: '列舉項目 ≥ 3', score: 1.4 }
+      { id: 'listed', label: '(已列舉)', score: 1 }
+    ],
+    levelCaps: {
+      listed: [
+        { count: 1, score: 1 },
+        { count: 2, score: 1.2 },
+        { count: 3, score: 1.4 }
+      ]
+    }
+  },
+  {
+    id: 'toeic', name: 'TOEIC 英文檢定', type: 'single',
+    scoreInputMode: true,  // 員工填「分數」數字而非下拉,系統按 score 自動對到 option
+    needsAttachmentHint: true,
+    note: '填 TOEIC 總分(0-990);系統自動對應等級:470-725 = +1、730-855 = +3、860-990 = +5',
+    options: [
+      { id: 'gold',  label: '860-990(金色)', score: 5, minScore: 860, maxScore: 990 },
+      { id: 'blue',  label: '730-855(藍色)', score: 3, minScore: 730, maxScore: 855 },
+      { id: 'green', label: '470-725(綠色)', score: 1, minScore: 470, maxScore: 725 },
+      { id: 'none',  label: '無(< 470 或未考)', score: 0, minScore: 0, maxScore: 469 }
     ]
   },
   {
-    id: 'cert', name: 'Certification', type: 'multi',
-    note: '可複選(多張證照分數相加)',
+    id: 'jlpt', name: '日文檢定 JLPT', type: 'single',
+    needsAttachmentHint: true,
+    note: '選擇最高的日文檢定等級',
     options: [
-      { id: 'pmp', label: 'PMP / PMI / NPDP 執照', score: 3 },
-      { id: 'toeic_green', label: 'TOEIC 綠色 470-725', score: 1 },
-      { id: 'toeic_blue', label: 'TOEIC 藍色 730-855', score: 3 },
-      { id: 'toeic_gold', label: 'TOEIC 金色 860-990', score: 5 },
-      { id: 'jlpt_n2', label: '日文檢定 JLPT N2', score: 3 },
-      { id: 'jlpt_n1', label: '日文檢定 JLPT N1', score: 5 }
+      { id: 'none', label: '無', score: 0 },
+      { id: 'n2',   label: 'JLPT N2', score: 3 },
+      { id: 'n1',   label: 'JLPT N1', score: 5 }
+    ]
+  },
+  {
+    id: 'other_cert', name: '其他證照', type: 'single',
+    listingMode: true, reviewerScoring: true, needsAttachmentHint: true,
+    note: '列舉其他證照(如 PMP/PMI/NPDP 等);主管逐筆填分 + ✓/✗ 決定',
+    options: [
+      // 隱含 level(reviewerScoring 模式下 level 不影響計分,分數主管填)
+      { id: 'listed', label: '(已列舉)', score: 0 }
     ]
   },
   {
@@ -1828,6 +1858,27 @@ function getEmployeeBonusData(empId) {
   return state.extraBonus?.[empId] || { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' };
 }
 
+// 把舊 cert multi-array 裡的 TOEIC/JLPT 值解析成新單 item 的 level:
+//   舊 data.items.cert = ['toeic_gold', 'jlpt_n1', 'pmp'] → 新:items.toeic = 'gold', items.jlpt = 'n1'
+//   取「最高」(對 TOEIC 而言 gold > blue > green;JLPT 而言 n1 > n2)
+// 若 data.items[itemId] 已有新值,優先用新值;否則從 data.items.cert 推
+function resolveSingleItemLevel(itemId, data) {
+  if (!data) return null;
+  const direct = data.items?.[itemId];
+  if (direct && direct !== 'none') return direct;
+  const cert = Array.isArray(data.items?.cert) ? data.items.cert : [];
+  if (cert.length === 0) return null;
+  if (itemId === 'toeic') {
+    if (cert.includes('toeic_gold')) return 'gold';
+    if (cert.includes('toeic_blue')) return 'blue';
+    if (cert.includes('toeic_green')) return 'green';
+  } else if (itemId === 'jlpt') {
+    if (cert.includes('jlpt_n1')) return 'n1';
+    if (cert.includes('jlpt_n2')) return 'n2';
+  }
+  return null;
+}
+
 // 取得員工自填申請資料
 function getEmployeeSubmission(empId) {
   return state.empSubmissions?.[empId] || {
@@ -1944,7 +1995,10 @@ function getEmployeeBonus(empId) {
       }
       return;
     }
-    const sel = data.items?.[item.id];
+    // 對 TOEIC/JLPT 用 resolveSingleItemLevel 自動從舊 cert 資料 fallback
+    const sel = (item.id === 'toeic' || item.id === 'jlpt')
+      ? resolveSingleItemLevel(item.id, data)
+      : data.items?.[item.id];
     if (item.type === 'single') {
       if (!sel || sel === 'none') return;
       const opt = item.options.find(o => o.id === sel);
@@ -2500,9 +2554,50 @@ function renderEmployeeForm() {
                         <span>本項無可列舉(我確定沒有 ${escapeHtml(item.name)} 可加分)</span>
                       </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
-                        💡 每列填一個 ${escapeHtml(item.name)} 項目:選等級、寫項目名稱、發生年月。<br>
-                        主管會逐筆審核 ✓ 接受 / ✗ 拒絕,**接受的列各自加分,加總為本項目最終分數**。<br>
+                        💡 ${item.countListingMode
+                            ? `逐筆列舉 ${escapeHtml(item.name)} 項目(項目名 + 月份)。`
+                            : `每列填一個 ${escapeHtml(item.name)} 項目:選等級、寫項目名稱、發生年月。`}<br>
+                        ${item.levelCaps ? (() => {
+                          // 針對 levelCaps 生成人類可讀的「等級規則」
+                          const rules = [];
+                          Object.keys(item.levelCaps).forEach(lvl => {
+                            const opt = item.options.find(o => o.id === lvl);
+                            const lvlName = opt ? opt.label : lvl;
+                            const caps = item.levelCaps[lvl].slice().sort((a,b)=>a.count-b.count);
+                            const parts = caps.map((c, i) => {
+                              const next = caps[i+1];
+                              if (next) return `${c.count} 個 ${lvlName} = +${c.score}`;
+                              return `≥${c.count} 個 ${lvlName} 封頂 +${c.score}`;
+                            });
+                            rules.push(parts.join('、'));
+                          });
+                          const uncappedLevels = item.options.filter(o => !item.levelCaps[o.id]);
+                          const uncapped = uncappedLevels.map(o => `每個 ${o.label} +${o.score}`).join('、');
+                          return `計分規則:${rules.join(';')}${uncapped ? ';' + uncapped + '(無封頂,各自加總)' : ''}。<br>`;
+                        })() : '主管會逐筆審核 ✓ 接受 / ✗ 拒絕,接受的列各自加分,加總為本項目最終分數。<br>'}
+                        ${item.needsAttachmentHint ? `<span style="color:var(--accent);">📧 請務必拍攝證照證明圖檔,mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</span><br>` : ''}
                         若本項真無可列舉,請勾上方「本項無可列舉」明確表態。
+                      </div>
+                    `;
+                  })() : item.scoreInputMode ? (() => {
+                    // 用舊 cert 資料 fallback 推當前 level
+                    const curLevel = resolveSingleItemLevel(item.id, data);
+                    const curStored = data.itemDetails?.[item.id];  // [{name:'score', score:820}] form
+                    const curScoreVal = (curStored && curStored[0] && curStored[0].score) || '';
+                    const curOpt = item.options.find(o => o.id === curLevel);
+                    const curLabel = curOpt ? curOpt.label : '';
+                    const curBonus = curOpt ? curOpt.score : 0;
+                    return `
+                      <div class="ipp-auto-summary" data-score-input-summary data-score-item="${item.id}">
+                        <span class="ipp-auto-label">分數</span>
+                        <input type="number" class="emp-score-input" data-score-item="${item.id}" value="${escapeHtml(String(curScoreVal))}" min="0" max="990" step="1" placeholder="例: 820" style="width:100px;background:var(--bg);border:1px solid var(--line-soft);padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);" ${isLocked ? 'disabled' : ''}>
+                        <span class="ipp-auto-level" data-score-level>${curLabel || '尚未填分'}</span>
+                        <span class="ipp-auto-score" data-score-bonus>${curBonus > 0 ? '+' + curBonus + ' 分' : '不加分'}</span>
+                      </div>
+                      <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
+                        💡 填入 ${escapeHtml(item.name)} 總分數字(0-990),系統自動判定等級。<br>
+                        分數對應:860-990 = +5、730-855 = +3、470-725 = +1、< 470 不加分。<br>
+                        ${item.needsAttachmentHint ? `<span style="color:var(--accent);">📧 請務必拍攝證照證明圖檔,mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</span>` : ''}
                       </div>
                     `;
                   })() : `
@@ -2512,6 +2607,7 @@ function renderEmployeeForm() {
                         <option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
                       `).join('')}
                     </select>
+                    ${item.needsAttachmentHint ? `<div style="font-size:11px;color:var(--accent);margin-top:6px;">📧 請務必拍攝證照證明圖檔,mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</div>` : ''}
                   `}
                   ${item.id === 'travel'
                     ? renderTravelDetailInputs(
@@ -2520,6 +2616,8 @@ function renderEmployeeForm() {
                         bandSince,
                         state.covidPeriod || {}
                       )
+                    : item.scoreInputMode
+                    ? ''
                     : renderDetailMultiInputs(
                         'emp-detail',
                         `data-detail-item="${item.id}"`,
@@ -2528,7 +2626,7 @@ function renderEmployeeForm() {
                         (item.id === 'ipp' || item.listingMode ? false : isDisabledByNone) || isLocked,
                         item.id,
                         bandSince,
-                        item.listingMode ? item.options : null
+                        item.listingMode && !item.countListingMode ? item.options : null
                       )
                   }
                 </div>
@@ -2740,7 +2838,7 @@ function renderEmpBonusForReviewer(emp) {
         const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
         const rowsHtml = detailArr.map(d => {
           const opt = item.options.find(o => o.id === d.level);
-          const optLabel = opt ? opt.label : '(未設等級)';
+          const optLabel = item.countListingMode ? '' : (opt ? opt.label : '(未設等級)');
           const dec = d.reviewDecision || 'pending';
           let decBadge;
           if (dec === 'accepted') decBadge = '<span style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;">✓ 已接受</span>';
@@ -3517,7 +3615,7 @@ function renderEmpBonusForAdmin(emp) {
       const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
       const rowsHtml = detailArr.map(d => {
         const opt = item.options.find(o => o.id === d.level);
-        const optLabel = opt ? opt.label : '(未設等級)';
+        const optLabel = item.countListingMode ? '' : (opt ? opt.label : '(未設等級)');
         const optScore = opt ? opt.score : 0;
         const dec = d.reviewDecision || 'pending';
         let decBadge;
@@ -3526,7 +3624,13 @@ function renderEmpBonusForAdmin(emp) {
         else decBadge = '<span style="color:var(--ink-muted);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;">⋯ 待審</span>';
         return `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">
           • ${escapeHtml(d.name)}
-          <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">${escapeHtml(optLabel)} (+${optScore})${d.occurredAt ? ' · ' + escapeHtml(d.occurredAt) : ''}</span>
+          <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">${
+            item.reviewerScoring
+              ? ((typeof d.reviewerScore === 'number' ? '+' + d.reviewerScore + ' 分' : '(尚未填分)') + (d.occurredAt ? ' · ' + escapeHtml(d.occurredAt) : ''))
+              : item.countListingMode
+                ? (d.occurredAt ? escapeHtml(d.occurredAt) : '')
+                : escapeHtml(optLabel) + ' (+' + optScore + ')' + (d.occurredAt ? ' · ' + escapeHtml(d.occurredAt) : '')
+          }</span>
           <span style="margin-left:6px;">${decBadge}</span>
         </div>`;
       }).join('');
@@ -4228,7 +4332,7 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
     const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });  // 不 preview,純看實際 accepted
     const rowsHtml = detailArr.map((d, idx) => {
       const opt = item.options.find(o => o.id === d.level);
-      const optLabel = opt ? opt.label : '(未設等級)';
+      const optLabel = item.countListingMode ? '' : (opt ? opt.label : '(未設等級)');
       const optScore = opt ? opt.score : 0;
       const dec = d.reviewDecision || 'pending';
       let decBadge;
@@ -4236,17 +4340,22 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
       else if (dec === 'rejected') decBadge = '<span style="color:var(--accent);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;">✗ 拒絕</span>';
       else decBadge = '<span style="color:var(--ink-muted);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;">⋯ 待審</span>';
       const dateStr = d.occurredAt ? d.occurredAt : '(未填月份)';
+      const curReviewerScore = (typeof d.reviewerScore === 'number' && isFinite(d.reviewerScore)) ? d.reviewerScore : '';
       return `
         <div class="listed-review-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-top:6px;background:var(--bg);border-left:3px solid ${dec === 'accepted' ? 'var(--green)' : (dec === 'rejected' ? 'var(--accent)' : 'var(--line-soft)')};">
           <div style="flex:1;min-width:0;">
             <div style="font-size:13px;color:var(--ink);">
               <b>${escapeHtml(d.name)}</b>
-              <span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">${escapeHtml(optLabel)} (+${optScore})</span>
+              ${item.countListingMode || item.reviewerScoring ? '' : `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">${escapeHtml(optLabel)} (+${optScore})</span>`}
+              ${item.reviewerScoring && curReviewerScore !== '' ? `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">+${curReviewerScore} 分</span>` : ''}
             </div>
             <div style="font-size:11px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">${escapeHtml(dateStr)} · ${decBadge}</div>
           </div>
           ${isDraft ? '' : `
-            <div style="display:flex;gap:4px;flex-shrink:0;">
+            <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
+              ${item.reviewerScoring ? `
+                <input type="number" class="reviewer-score-input" data-empid="${emp.id}" data-itemid="${item.id}" data-rowidx="${idx}" value="${escapeHtml(String(curReviewerScore))}" min="0" step="0.1" placeholder="分數" style="width:70px;background:var(--bg);border:1px solid var(--line-soft);padding:5px 8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink);" title="主管填分">
+              ` : ''}
               <button class="review-btn ${dec === 'accepted' ? 'active accept' : ''}" data-action="set-listed-review" data-empid="${emp.id}" data-itemid="${item.id}" data-rowidx="${idx}" data-decision="accepted">✓</button>
               <button class="review-btn ${dec === 'rejected' ? 'active reject' : ''}" data-action="set-listed-review" data-empid="${emp.id}" data-itemid="${item.id}" data-rowidx="${idx}" data-decision="rejected">✗</button>
             </div>
@@ -4916,6 +5025,36 @@ function attachHandlers() {
       if (container) updateListedSummary(container);
     });
   });
+  // TOEIC-style score input 即時重算
+  document.querySelectorAll('input.emp-score-input').forEach(inp => {
+    const handler = () => updateScoreInputSummary(inp);
+    inp.addEventListener('input', handler);
+    inp.addEventListener('change', handler);
+  });
+  // 主管端「其他證照」分數輸入 — 主管輸入後 change 時寫回 state
+  document.querySelectorAll('input.reviewer-score-input').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const empId = inp.dataset.empid;
+      const itemId = inp.dataset.itemid;
+      const rowIdx = parseInt(inp.dataset.rowidx, 10);
+      if (!state.empSubmissions?.[empId]) return;
+      const sub = state.empSubmissions[empId];
+      const item = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+      if (!item) return;
+      const arr = migrateListedDetails(item, sub, sub.data || {});
+      if (rowIdx < 0 || rowIdx >= arr.length) return;
+      const raw = (inp.value || '').trim();
+      if (!raw) {
+        delete arr[rowIdx].reviewerScore;
+      } else {
+        const n = parseFloat(raw);
+        if (isFinite(n) && n >= 0) arr[rowIdx].reviewerScore = n;
+      }
+      sub.data.itemDetails[itemId] = arr;
+      await saveState(state);
+      render();
+    });
+  });
   // bandSince 改變也要重算(IPP / Travel / listing-mode 都會被影響)
   const bandSinceEl = document.querySelector('.emp-band-since');
   if (bandSinceEl) {
@@ -4936,8 +5075,7 @@ function attachHandlers() {
 }
 
 // 即時重算員工頁頂部「申請總分」(包含 listing-mode 預估、IPP 自動算、cert 多選等)
-function updateAppliedTotal() {
-  const totalEl = document.querySelector('[data-applied-total]');
+function updateAppliedTotal() {  const totalEl = document.querySelector('[data-applied-total]');
   if (!totalEl) return;
   const empId = view.payload?.empId;
   if (!empId) return;
@@ -5021,17 +5159,25 @@ function updateAppliedTotal() {
     }
   }
 
-  // 4) 其他 single 下拉項目(STAMP 已是 listing 不在此)+ multi(cert)
+  // 4) 其他 single 下拉項目(STAMP 已是 listing 不在此)+ multi(cert)+ scoreInputMode(TOEIC)
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
-    if (item.listingMode) return;       // 上面已算
-    if (item.id === 'ipp' || item.id === 'travel') return;  // 上面已算
+    if (item.listingMode) return;
+    if (item.id === 'ipp' || item.id === 'travel') return;
+    if (item.scoreInputMode) {
+      const inp = document.querySelector(`input.emp-score-input[data-score-item="${item.id}"]`);
+      if (!inp) return;
+      const n = parseFloat(inp.value);
+      if (!isFinite(n)) return;
+      const opt = item.options.find(o => typeof o.minScore === 'number' && n >= o.minScore && n <= o.maxScore);
+      if (opt) total += opt.score;
+      return;
+    }
     if (item.type === 'single') {
       const sel = document.querySelector(`.emp-select[data-item="${item.id}"]`);
       if (!sel || !sel.value || sel.value === 'none') return;
       const opt = item.options.find(o => o.id === sel.value);
       if (opt) total += opt.score;
     } else {
-      // multi (cert)
       document.querySelectorAll(`.emp-multi[data-item="${item.id}"]:checked`).forEach(cb => {
         const opt = item.options.find(o => o.id === cb.value);
         if (opt) total += opt.score;
@@ -5207,6 +5353,37 @@ function updateTravelSummary() {
   });
 }
 
+// TOEIC-style score input:員工打數字時即時更新 level + 分數 label
+function updateScoreInputSummary(inp) {
+  if (!inp) return;
+  const itemId = inp.dataset.scoreItem;
+  if (!itemId) return;
+  const item = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+  if (!item || !item.scoreInputMode) return;
+  const box = document.querySelector(`[data-score-input-summary][data-score-item="${itemId}"]`);
+  if (!box) return;
+  const lvlEl = box.querySelector('[data-score-level]');
+  const bonusEl = box.querySelector('[data-score-bonus]');
+  const raw = (inp.value || '').trim();
+  if (!raw) {
+    if (lvlEl) lvlEl.textContent = '尚未填分';
+    if (bonusEl) bonusEl.textContent = '不加分';
+    return;
+  }
+  const n = parseFloat(raw);
+  if (!isFinite(n) || n < 0) {
+    if (lvlEl) lvlEl.textContent = '無效分數';
+    if (bonusEl) bonusEl.textContent = '不加分';
+    return;
+  }
+  const opt = item.options.find(o =>
+    typeof o.minScore === 'number' && typeof o.maxScore === 'number' &&
+    n >= o.minScore && n <= o.maxScore
+  );
+  if (lvlEl) lvlEl.textContent = opt ? opt.label : `${n} 分(超出範圍)`;
+  if (bonusEl) bonusEl.textContent = (opt && opt.score > 0) ? '+' + opt.score + ' 分' : '不加分';
+}
+
 // Listing-mode summary 即時重算(STAMP 等):從 DOM 收每列的 level + name 算總和
 // 因為員工填表階段所有列都還是 pending,我們用 preview = true 顯示「預估」分數
 function updateListedSummary(container) {
@@ -5370,7 +5547,7 @@ async function handleAction(e) {
             if (Array.isArray(opts) && opts.length > 0) {
               levelField = `<select class="${className}-level" ${attrs} title="本筆等級">
                 <option value="" selected>-- 等級 --</option>
-                ${opts.map(o => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)} (+${o.score})</option>`).join('')}
+                ${opts.map(o => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)}</option>`).join('')}
               </select>`;
             }
           } catch {}
@@ -5701,17 +5878,34 @@ function collectAndValidateEmpForm() {
           }
         }
       }
-      // listing-mode(STAMP 等):每列必須選等級
+      // listing-mode(STAMP 等):每列必須選等級(countListingMode 除外)
       if (container.dataset.listing === '1') {
-        const lvlSel = row.querySelector('select.emp-detail-level');
-        const lvl = lvlSel ? (lvlSel.value || '').trim() : '';
-        if (!lvl) {
-          const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
-          const label = itemDef ? itemDef.name : itemId;
-          problems.push(`${label}「${name}」: 請選擇等級`);
+        const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+        if (itemDef && itemDef.countListingMode) {
+          // no level field, skip
+        } else {
+          const lvlSel = row.querySelector('select.emp-detail-level');
+          const lvl = lvlSel ? (lvlSel.value || '').trim() : '';
+          if (!lvl) {
+            const label = itemDef ? itemDef.name : itemId;
+            problems.push(`${label}「${name}」: 請選擇等級`);
+          }
         }
       }
     });
+  });
+
+  // scoreInputMode(TOEIC):若有填分數,必須是 0-990 的有效數字
+  document.querySelectorAll('input.emp-score-input').forEach(inp => {
+    const itemId = inp.dataset.scoreItem;
+    const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+    if (!itemDef) return;
+    const raw = (inp.value || '').trim();
+    if (!raw) return;  // 空值允許(等同「未考」)
+    const n = parseFloat(raw);
+    if (!isFinite(n) || n < 0 || n > 990 || String(n) !== raw) {
+      problems.push(`${itemDef.name}: 分數「${raw}」無效,須為 0-990 的整數`);
+    }
   });
 
   // Listing-mode 強制表態:每個 listing-mode 項目必須「有列舉至少一筆有效列」或「勾選本項無可列舉」
@@ -5809,6 +6003,41 @@ async function collectAndSaveEmpForm(newStatus) {
     const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
     if (itemDef && itemDef.listingMode) return;  // listing 項目沒下拉
     if (sel.value && sel.value !== 'none') sub.data.items[itemId] = sel.value;
+    else if (sel.value === 'none' || sel.value === '') delete sub.data.items[itemId];
+  });
+
+  // scoreInputMode(TOEIC):員工填數字 → 自動對到 option 當 level
+  document.querySelectorAll('input.emp-score-input').forEach(inp => {
+    const itemId = inp.dataset.scoreItem;
+    const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
+    if (!itemDef || !itemDef.scoreInputMode) return;
+    const raw = (inp.value || '').trim();
+    if (!raw) {
+      // 空值 → 清掉
+      delete sub.data.items[itemId];
+      delete sub.data.itemDetails[itemId];
+      return;
+    }
+    const n = parseFloat(raw);
+    if (!isFinite(n) || n < 0) {
+      // 非法 → 清,validator 另外擋
+      delete sub.data.items[itemId];
+      delete sub.data.itemDetails[itemId];
+      return;
+    }
+    // 找對應 option(按 minScore/maxScore 區間)
+    const matched = itemDef.options.find(o =>
+      typeof o.minScore === 'number' && typeof o.maxScore === 'number' &&
+      n >= o.minScore && n <= o.maxScore
+    );
+    if (matched && matched.id !== 'none' && matched.score > 0) {
+      sub.data.items[itemId] = matched.id;
+      sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: '' }];
+    } else {
+      // 分數太低,不加分
+      delete sub.data.items[itemId];
+      sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: '' }];  // 仍保留分數作為紀錄
+    }
   });
 
   // 用「列」為單位配對 text + month + (IPP only) weight + (listing-mode) level 收集成物件陣列
@@ -5826,6 +6055,9 @@ async function collectAndSaveEmpForm(newStatus) {
         if (d.reviewDecision) existingByKey[k] = d.reviewDecision;
       });
     }
+    // countListingMode 項目 ref(無 level 下拉)
+    const containerItem = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === containerItemId);
+    const isCountMode = containerItem && containerItem.countListingMode;
     const rows = [];
     container.querySelectorAll('.detail-multi-row').forEach(row => {
       const txt = row.querySelector('input.emp-detail, input.emp-cert-detail');
@@ -5839,8 +6071,12 @@ async function collectAndSaveEmpForm(newStatus) {
       if (wsel && wsel.value) { const w = peopleNToWeight(wsel.value); if (w) obj.weight = w; }
       if (lvlsel && lvlsel.value) {
         obj.level = lvlsel.value;
-        // 保留先前審核決定;如果是新列(無 key 對應)預設 pending
         const k = `${obj.name}|${obj.occurredAt}|${obj.level}`;
+        obj.reviewDecision = existingByKey[k] || 'pending';
+      } else if (isCountMode) {
+        // 無 level 下拉 → 自動填 'listed'(item 只有一個 option)
+        obj.level = 'listed';
+        const k = `${obj.name}|${obj.occurredAt}|listed`;
         obj.reviewDecision = existingByKey[k] || 'pending';
       }
       rows.push(obj);
@@ -6127,18 +6363,28 @@ async function handleBulkReview(empId, type) {
 async function handleFinalizeReview(empId) {
   const sub = state.empSubmissions?.[empId];
   if (!sub) return;
-  // 檢查有沒有還在 pending 的
   let pending = 0;
   Object.values(sub.reviewedItems || {}).forEach(v => { if (v === 'pending') pending++; });
   Object.values(sub.reviewedCertItems || {}).forEach(v => { if (v === 'pending') pending++; });
-  // listing-mode:每筆細項各自的 pending 也算
+  // listing-mode 待審 + reviewerScoring 「已接受但未填分」的列
+  let unscoredAccepted = 0;
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
     if (!item.listingMode) return;
     const arr = migrateListedDetails(item, sub, sub.data || {});
-    arr.forEach(d => { if ((d.reviewDecision || 'pending') === 'pending') pending++; });
+    arr.forEach(d => {
+      const dec = d.reviewDecision || 'pending';
+      if (dec === 'pending') pending++;
+      if (item.reviewerScoring && dec === 'accepted') {
+        const s = parseFloat(d.reviewerScore);
+        if (!isFinite(s) || s <= 0) unscoredAccepted++;
+      }
+    });
   });
-  if (pending > 0) {
-    if (!confirm(`還有 ${pending} 項尚未決定(待審狀態),這些項目將不會計入加分。\n確定要完成審核?`)) return;
+  const warnings = [];
+  if (pending > 0) warnings.push(`還有 ${pending} 項尚未決定(待審狀態),這些項目將不會計入加分。`);
+  if (unscoredAccepted > 0) warnings.push(`有 ${unscoredAccepted} 筆「其他證照」已接受但未填分,將以 0 分計入。`);
+  if (warnings.length > 0) {
+    if (!confirm(warnings.join('\n') + '\n\n確定要完成審核?')) return;
   }
   sub.status = 'reviewed';
   applyReviewedSubmission(empId);
@@ -6676,6 +6922,16 @@ function normalizeDetail(v) {
       if (x.reviewDecision === 'accepted' || x.reviewDecision === 'rejected' || x.reviewDecision === 'pending') {
         out.reviewDecision = x.reviewDecision;
       }
+      // 保留 reviewerScore(主管填分項用,例如其他證照 — number 或可轉 number 字串)
+      if (x.reviewerScore !== undefined && x.reviewerScore !== null && x.reviewerScore !== '') {
+        const n = parseFloat(x.reviewerScore);
+        if (isFinite(n)) out.reviewerScore = n;
+      }
+      // 保留 score(TOEIC scoreInputMode 用,員工填的原始分數)
+      if (x.score !== undefined && x.score !== null && x.score !== '') {
+        const n = parseFloat(x.score);
+        if (isFinite(n)) out.score = n;
+      }
       return out;
     }
     return null;
@@ -6843,6 +7099,36 @@ function summarizeIpp(detailArr, bandSince) {
 // 且若該項目舊狀態為 'accepted'(整項審核已通過),所有細項視為 accepted
 // 回傳 normalized + migrated 的 detail array(不修改原物件)
 function migrateListedDetails(item, sub, data) {
+  // === 舊 cert 資料 → 新 other_cert migration(TOEIC/JLPT 不走 listing,另外 migrate) ===
+  // 舊形狀:data.items.cert = ['pmp', 'toeic_gold', 'jlpt_n1', ...]
+  //         data.certDetails.pmp = [{name, occurredAt}]
+  //         sub.reviewedCertItems.pmp = 'accepted' | 'rejected' | 'pending'
+  if (item.id === 'other_cert') {
+    const existing = normalizeDetail(data.itemDetails?.[item.id]);
+    const legacyCerts = Array.isArray(data.items?.cert) ? data.items.cert : [];
+    if (existing.length === 0 && legacyCerts.length > 0) {
+      // 舊資料中,除了 TOEIC/JLPT 以外的都視為「其他證照」
+      const OLD_TOEIC = new Set(['toeic_gold', 'toeic_blue', 'toeic_green']);
+      const OLD_JLPT = new Set(['jlpt_n1', 'jlpt_n2']);
+      const OLD_CERT_DEFAULTS = { pmp: 3 };
+      const migrated = [];
+      legacyCerts.forEach(oldOptId => {
+        if (OLD_TOEIC.has(oldOptId) || OLD_JLPT.has(oldOptId)) return;
+        const decLegacy = sub.reviewedCertItems?.[oldOptId] || 'pending';
+        const legacyDetails = normalizeDetail(data.certDetails?.[oldOptId]);
+        const origName = legacyDetails[0]?.name || oldOptId;
+        const occurredAt = legacyDetails[0]?.occurredAt || '';
+        const reviewerScore = (decLegacy === 'accepted') ? (OLD_CERT_DEFAULTS[oldOptId] || 0) : 0;
+        migrated.push({
+          name: origName, occurredAt, level: 'listed',
+          reviewDecision: decLegacy,
+          ...(reviewerScore > 0 ? { reviewerScore } : {})
+        });
+      });
+      if (migrated.length > 0) return migrated;
+    }
+  }
+  // === 一般 listing-mode migration(既有邏輯) ===
   const raw = data.itemDetails?.[item.id];
   const arr = normalizeDetail(raw);
   if (arr.length === 0) return arr;
@@ -6851,7 +7137,9 @@ function migrateListedDetails(item, sub, data) {
   // 舊 option id → 新 option id remap(各項目改版時用)
   // Award: i1 → internal, i2plus → internal(兩者都代表「內部獎項」,舊的 i2plus 是「計數封頂」概念在新制廢止)
   const LEGACY_OPT_REMAP = {
-    award: { i1: 'internal', i2plus: 'internal' }
+    award: { i1: 'internal', i2plus: 'internal' },
+    innovation: { '1': 'listed', '2': 'listed', '3plus': 'listed' },
+    nfi: { '1': 'listed', '2': 'listed', '3plus': 'listed' }
   };
   const remap = (lvl) => {
     if (!lvl) return lvl;
@@ -6914,35 +7202,64 @@ function summarizeListedItem(item, detailArr, options = {}) {
     classified.push({ opt, dec, lvl });
   });
 
-  // 計分:以 level 分組,每個 level 看是否有 cap
-  const caps = item.levelCaps || {};
-  // 分 level 累計 accepted / pending 筆數
-  const countByLevel = {};  // {lvl: {accepted, pending}}
-  classified.forEach(({ lvl, dec }) => {
-    if (!countByLevel[lvl]) countByLevel[lvl] = { accepted: 0, pending: 0 };
-    if (dec === 'accepted') countByLevel[lvl].accepted++;
-    else if (dec !== 'rejected') countByLevel[lvl].pending++;
-  });
-  const scoreFromCount = (lvl, cnt) => {
-    if (cnt <= 0) return 0;
-    if (caps[lvl]) {
-      // 找 count <= cnt 最大 count 對應的 score
-      const entries = caps[lvl].slice().sort((a, b) => a.count - b.count);
-      let s = 0;
-      for (const e of entries) { if (cnt >= e.count) s = e.score; }
-      return s;
-    }
-    // 沒 cap → 每筆加總
-    const opt = item.options.find(o => o.id === lvl);
-    return (opt ? opt.score : 0) * cnt;
-  };
+  // 計分:三種模式
+  // A) item.pickHighestMode = true → 從接受列中挑 score 最高那筆(TOEIC / 日文)
+  // B) item.reviewerScoring = true → 每筆用 d.reviewerScore(主管填的)加總(其他證照)
+  // C) 預設(含 levelCaps):每 level 按 cap 表或 per-row 加總
   let acceptedScore = 0;
-  let previewScore = 0;  // preview 模式 = accepted + pending
-  Object.keys(countByLevel).forEach(lvl => {
-    const { accepted, pending } = countByLevel[lvl];
-    acceptedScore += scoreFromCount(lvl, accepted);
-    previewScore += scoreFromCount(lvl, accepted + pending);
-  });
+  let previewScore = 0;
+
+  if (item.pickHighestMode) {
+    // 從 classified 裡挑出:accepted 的最高 score、accepted+pending 的最高 score
+    let maxAccepted = 0, maxWithPending = 0;
+    classified.forEach(({ opt, dec }) => {
+      const s = opt ? opt.score : 0;
+      if (dec === 'accepted') {
+        if (s > maxAccepted) maxAccepted = s;
+        if (s > maxWithPending) maxWithPending = s;
+      } else if (dec !== 'rejected') {
+        if (s > maxWithPending) maxWithPending = s;
+      }
+    });
+    acceptedScore = maxAccepted;
+    previewScore = maxWithPending;
+  } else if (item.reviewerScoring) {
+    // 主管填的 reviewerScore:只算 accepted 列
+    // preview mode 下 pending 列用 0(員工看不到預估分數,等主管填)
+    let sumAccepted = 0;
+    classified.forEach(({ d, dec }) => {
+      if (dec !== 'accepted') return;
+      const s = parseFloat(d.reviewerScore);
+      if (isFinite(s) && s > 0) sumAccepted += s;
+    });
+    acceptedScore = sumAccepted;
+    previewScore = sumAccepted;  // pending 列預估值為 0
+  } else {
+    // 預設:levelCaps 或每筆加總
+    const caps = item.levelCaps || {};
+    const countByLevel = {};
+    classified.forEach(({ lvl, dec }) => {
+      if (!countByLevel[lvl]) countByLevel[lvl] = { accepted: 0, pending: 0 };
+      if (dec === 'accepted') countByLevel[lvl].accepted++;
+      else if (dec !== 'rejected') countByLevel[lvl].pending++;
+    });
+    const scoreFromCount = (lvl, cnt) => {
+      if (cnt <= 0) return 0;
+      if (caps[lvl]) {
+        const entries = caps[lvl].slice().sort((a, b) => a.count - b.count);
+        let s = 0;
+        for (const e of entries) { if (cnt >= e.count) s = e.score; }
+        return s;
+      }
+      const opt = item.options.find(o => o.id === lvl);
+      return (opt ? opt.score : 0) * cnt;
+    };
+    Object.keys(countByLevel).forEach(lvl => {
+      const { accepted, pending } = countByLevel[lvl];
+      acceptedScore += scoreFromCount(lvl, accepted);
+      previewScore += scoreFromCount(lvl, accepted + pending);
+    });
+  }
 
   const totalScore = isPreview ? previewScore : acceptedScore;
   return {
@@ -7103,7 +7420,7 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
       <select class="${className}-level" ${rowAttrs} ${disAttr} title="本筆等級">
         <option value="" ${!d.level ? 'selected' : ''}>-- 等級 --</option>
         ${levelOptions.map(o => `
-          <option value="${escapeHtml(o.id)}" ${d.level === o.id ? 'selected' : ''}>${escapeHtml(o.label)} (+${o.score})</option>
+          <option value="${escapeHtml(o.id)}" ${d.level === o.id ? 'selected' : ''}>${escapeHtml(o.label)}</option>
         `).join('')}
       </select>
     ` : '';
