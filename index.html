@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.12';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.13';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -3949,185 +3949,6 @@ function renderBonusTab() {
       }).join('')}
     </div>
 
-    <div class="admin-section">
-      <h3>Extra Contribution 加分(管理員直接填)</h3>
-      <div style="font-size:13px;color:var(--ink-soft);line-height:1.7;margin-bottom:18px;">
-        若員工沒透過自填連結提交,管理員可在此直接幫員工填寫加分項目。<br>
-        <span style="color:var(--ink-muted);font-size:12px;">※ 主管端看不到加分,只在後台「評分統計 → 加分後」模式中影響排名。</span>
-      </div>
-      ${sortedBands.map(band => {
-        const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
-        return `
-          <div style="margin-top:24px;">
-            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--line-soft);">
-              Band ${band} → Band ${targetBand} · ${bandGroups[band].length} 位
-            </div>
-            ${bandGroups[band].map(e => {
-              const bonus = getEmployeeBonus(e.id);
-              const data = getEmployeeBonusData(e.id);
-              const isExpanded = expandedEmpId === e.id;
-              const bandSince = normalizeYearMonth(e.bandSinceYYYYMM);
-              return `
-                <div class="bonus-emp-card ${isExpanded ? 'expanded' : ''}">
-                  <div class="bonus-emp-header" data-action="toggle-bonus-emp" data-id="${e.id}">
-                    <div>
-                      <span style="font-family:'Fraunces',serif;font-size:16px;font-weight:500;">${escapeHtml(e.name)}</span>
-                      <span style="color:var(--ink-soft);font-size:12px;font-family:'JetBrains Mono',monospace;margin-left:8px;">${escapeHtml(e.enName || '')}</span>
-                      <span class="tech-tag" style="margin-left:8px;">${escapeHtml(getEmployeeTech(e))}</span>
-                      <span style="color:var(--ink-muted);font-size:12px;margin-left:8px;">${escapeHtml(displayDept(e.dept))}</span>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:14px;">
-                      <span style="font-family:'Fraunces',serif;font-size:22px;font-weight:600;color:${bonus.score > 0 ? 'var(--gold)' : 'var(--ink-muted)'};">
-                        ${bonus.score > 0 ? '+' + bonus.score : '—'}
-                      </span>
-                      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-muted);letter-spacing:0.1em;">${isExpanded ? '收合 ▲' : '展開 ▼'}</span>
-                    </div>
-                  </div>
-                  ${isExpanded ? `
-                    <div class="bonus-emp-body">
-                      <div class="band-since-field" style="margin-bottom:16px;">
-                        <label>當前 Band 起始年月</label>
-                        <input type="month" class="admin-band-since" data-bonus-emp="${e.id}" value="${escapeHtml(bandSince)}" placeholder="YYYY-MM">
-                        <div class="hint">
-                          ${bandSince
-                            ? '員工自填時會以此為基準驗證。管理員可在此覆寫。'
-                            : '<span class="err">※ 尚未設定,員工端加分項目將無法驗證發生月份。</span>'}
-                        </div>
-                      </div>
-                      ${EXTRA_CONTRIBUTION_ITEMS.map(item => {
-                        const sel = data.items?.[item.id];
-                        // single/multi 都需要這個提示文字
-                        const detailHints = {
-                          stamp: '請列出 KI 項目名稱',
-                          innovation: '請列出 Innovation Project / Proposal 名稱',
-                          ipp: '請列出 IPP 名稱(對應數量)',
-                          conference: '會議 / 論文名稱',
-                          award: '獎項名稱、頒發單位',
-                          nfi: '請列出 NFI 或 POC 項目名稱',
-                          travel: '出差地點、起迄日期',
-                          lecturer: '課程名稱、授課場次',
-                          linc: '參賽作品名稱'
-                        };
-                        const certHints = {
-                          pmp: '證照編號、取得日期',
-                          toeic_green: '分數 / 取得日期',
-                          toeic_blue: '分數 / 取得日期',
-                          toeic_gold: '分數 / 取得日期',
-                          jlpt_n2: '取得日期',
-                          jlpt_n1: '取得日期'
-                        };
-                        if (item.type === 'single') {
-                          const detailArr = normalizeDetail(data.itemDetails?.[item.id]);
-                          const isDisabledByNone = sel === 'none';
-                          return `
-                            <div class="bonus-item-row">
-                              <div class="bonus-item-name">
-                                ${escapeHtml(item.name)}
-                                ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
-                              </div>
-                              <div class="bonus-item-control">
-                                <select class="bonus-select" data-bonus-emp="${e.id}" data-item="${item.id}">
-                                  <option value="" ${!sel ? 'selected' : ''}>-- 請選擇 --</option>
-                                  ${item.options.map(o => `
-                                    <option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
-                                  `).join('')}
-                                </select>
-                                ${renderDetailMultiInputs(
-                                  'bonus-detail',
-                                  `data-bonus-emp="${e.id}" data-detail-item="${item.id}"`,
-                                  detailArr,
-                                  detailHints[item.id] || '具體項目 / 紀錄',
-                                  isDisabledByNone,
-                                  item.id,
-                                  bandSince
-                                )}
-                              </div>
-                            </div>
-                          `;
-                        } else {
-                          // multi
-                          const arr = Array.isArray(sel) ? sel : [];
-                          return `
-                            <div class="bonus-item-row">
-                              <div class="bonus-item-name">
-                                ${escapeHtml(item.name)}
-                                ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
-                              </div>
-                              <div class="bonus-item-control">
-                                <div class="bonus-multi-list">
-                                  ${item.options.map(o => {
-                                    const checked = arr.includes(o.id);
-                                    const certDetailArr = normalizeDetail(data.certDetails?.[o.id]);
-                                    return `
-                                      <div class="bonus-multi-row">
-                                        <label class="bonus-check">
-                                          <input type="checkbox" class="bonus-multi" data-bonus-emp="${e.id}" data-item="${item.id}" value="${o.id}" ${checked ? 'checked' : ''}>
-                                          <span>${escapeHtml(o.label)} <span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;">+${o.score}</span></span>
-                                        </label>
-                                        ${renderDetailMultiInputs(
-                                          'bonus-cert-detail',
-                                          `data-bonus-emp="${e.id}" data-cert-opt="${o.id}"`,
-                                          certDetailArr,
-                                          certHints[o.id] || '證照詳細資料',
-                                          !checked,
-                                          item.id,
-                                          bandSince
-                                        )}
-                                      </div>
-                                    `;
-                                  }).join('')}
-                                </div>
-                              </div>
-                            </div>
-                          `;
-                        }
-                      }).join('')}
-                      <div class="bonus-item-row" style="background:rgba(176,141,58,0.04);">
-                        <div class="bonus-item-name">
-                          Others
-                          <div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">由 Promotion Committee 討論後填入</div>
-                        </div>
-                        <div class="bonus-item-control">
-                          <div style="display:flex;gap:10px;align-items:center;">
-                            <input type="number" step="0.1" min="0" max="20" value="${data.others || 0}" data-bonus-emp="${e.id}" data-others="score" class="bonus-input" style="width:80px;text-align:center;">
-                            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);">分</span>
-                            <input type="text" value="${escapeHtml(data.othersNote || '')}" placeholder="說明(例: 特殊專案貢獻)" data-bonus-emp="${e.id}" data-others="note" class="bonus-input" style="flex:1;font-size:13px;">
-                          </div>
-                        </div>
-                      </div>
-
-                      ${bonus.breakdown.length > 0 ? `
-                        <div class="bonus-summary">
-                          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:var(--ink-muted);margin-bottom:8px;">加分明細</div>
-                          ${bonus.breakdown.map(b => `
-                            <div style="padding:6px 0;font-size:13px;border-bottom:1px dashed var(--line-soft);">
-                              <div style="display:flex;justify-content:space-between;">
-                                <span><b>${escapeHtml(b.itemName)}</b>: ${escapeHtml(b.label)}</span>
-                                <span style="font-family:'JetBrains Mono',monospace;color:var(--gold);font-weight:600;">+${b.score}</span>
-                              </div>
-                              ${b.detail ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;padding-left:12px;border-left:2px solid var(--gold);">${escapeHtml(b.detail)}</div>` : ''}
-                            </div>
-                          `).join('')}
-                          <div style="display:flex;justify-content:space-between;padding-top:10px;margin-top:8px;border-top:1px solid var(--line-soft);font-family:'Fraunces',serif;font-size:18px;">
-                            <span>合計</span>
-                            <span style="color:var(--gold);font-weight:600;">+${bonus.score}</span>
-                          </div>
-                        </div>
-                      ` : ''}
-
-                      <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px;">
-                        <button class="btn secondary small" data-action="reset-bonus-emp" data-id="${e.id}">清除此員工加分</button>
-                        <button class="btn small" data-action="save-bonus-emp" data-id="${e.id}">儲存</button>
-                      </div>
-                    </div>
-                  ` : ''}
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `;
-      }).join('')}
-    </div>
   `;
 }
 
@@ -4212,7 +4033,7 @@ function renderReviewTab() {
       ${noSubmission.length > 0 ? `
         <div style="margin-top:24px;">
           <h4 style="font-family:'Fraunces',serif;font-size:18px;margin-bottom:10px;color:var(--ink-muted);">— 尚未填寫(${noSubmission.length})</h4>
-          <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;">提醒這些員工填寫,或可在 Extra Contribution 頁直接代填</div>
+          <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;">提醒這些員工填寫自填連結(在 Extra Contribution 頁)</div>
           ${noSubmission.map(e => `
             <div class="link-row" style="opacity:0.6;">
               <div class="link-info">
