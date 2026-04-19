@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.14';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.15';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -4632,6 +4632,14 @@ function renderEmployeesTab() {
 }
 
 function renderManagersTab() {
+  // 從現有員工的 dept 欄抓出括號內的部門識別字,供下拉選用
+  const deptKeywords = new Set();
+  state.employees.forEach(e => {
+    const dept = e.dept || '';
+    const match = dept.match(/[((]([^)\)]+)[))]/);
+    if (match && match[1]) deptKeywords.add(match[1].trim());
+  });
+  const sortedKeywords = Array.from(deptKeywords).sort();
   return `
     <div class="admin-section">
       <h3>新增主管</h3>
@@ -4641,10 +4649,17 @@ function renderManagersTab() {
       </div>
       <div class="field">
         <label>自己部門識別字(避嫌規避)</label>
-        <input type="text" id="newMgrOwnDept" placeholder="員工部門括號內的字,例:Wilbur。額外評審請留空">
+        <select id="newMgrOwnDept">
+          <option value="">(無 · 跨部門大主管 / 額外評審)</option>
+          ${sortedKeywords.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
+        </select>
       </div>
       <div class="field">
         <label>可評分的部門類別</label>
+        <div style="margin-bottom:10px;">
+          <button class="btn secondary small" data-action="newmgr-preset-ss" type="button" title="一鍵勾選全部技術類別(SS · 台北軟體部門主管)">SS 台北軟體部門(勾選全部)</button>
+          <button class="btn secondary small" data-action="newmgr-preset-clear" type="button" style="margin-left:6px;">全部取消</button>
+        </div>
         <div class="cat-checkboxes">
           ${state.deptCategories.map(c => `
             <label class="cat-checkbox">
@@ -4661,10 +4676,11 @@ function renderManagersTab() {
 
       <div style="margin-top:18px;padding:14px 16px;background:var(--bg);border-left:3px solid var(--gold);font-size:12.5px;line-height:1.7;color:var(--ink-soft);">
         <b style="color:var(--ink);">常見設定範例</b><br>
-        <b>部門主管</b>(會避嫌):自己部門識別字 = Wilbur,勾選可評技術領域<br>
-        <b>跨部門大主管</b>(評全部):自己部門識別字 = 留空,部門類別 = 全部不勾<br>
-        <b>額外評審</b>(評技術領域內全部、不避嫌):自己部門識別字 = 留空,勾選對應技術領域<br>
-        &nbsp;&nbsp;例:BIOS 資深評審 → 留空 + 勾「軟體設計 (BIOS)」+「韌體開發 (EC)」
+        <b>部門主管</b>(會避嫌):自己部門 = Wilbur,勾選可評技術領域<br>
+        <b>SS 台北軟體部門主管</b>(含 BIOS/EC/SA):自己部門 = 無,點「SS 台北軟體部門」快捷鈕<br>
+        <b>跨部門大主管(評全部)</b>:自己部門 = 無,部門類別 = 全部不勾<br>
+        <b>額外評審</b>(評技術領域內全部、不避嫌):自己部門 = 無,勾選對應技術領域<br>
+        &nbsp;&nbsp;例:BIOS 資深評審 → 無 + 勾「軟體設計 (BIOS)」+「韌體開發 (EC)」
       </div>
 
       <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--line-soft);">
@@ -5732,6 +5748,12 @@ async function handleAction(e) {
     }
     case 'add-manager':
       await handleAddManager();
+      break;
+    case 'newmgr-preset-ss':
+      document.querySelectorAll('.newMgrCat').forEach(cb => { cb.checked = true; });
+      break;
+    case 'newmgr-preset-clear':
+      document.querySelectorAll('.newMgrCat').forEach(cb => { cb.checked = false; });
       break;
     case 'del-manager':
       await handleDeleteManager(id);
