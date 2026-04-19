@@ -2530,7 +2530,7 @@ function renderEmployeeForm() {
                     let levelText;
                     if (summary.totalCount === 0) levelText = '尚未填寫';
                     else if (summary.levelLabel) levelText = summary.levelLabel;
-                    else levelText = `無 (合計 ${summary.eligibleDays} 天 < 30)`;
+                    else levelText = `不足 30 天 (合計 ${summary.eligibleDays} 天)`;
                     const covidRangeText = (cp.startYYYYMM && cp.endYYYYMM)
                       ? `目前疫情期間設定:<b>${escapeHtml(cp.startYYYYMM)} ~ ${escapeHtml(cp.endYYYYMM)}</b>`
                       : '<span style="color:var(--accent);">⚠ 管理員尚未設定疫情期間,Travel 將無法計入加分。請聯繫管理員。</span>';
@@ -2547,8 +2547,8 @@ function renderEmployeeForm() {
                       </div>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
                         💡 ${covidRangeText}<br>
-                        每段出差填「出發日 + 回台日」,系統自動計算總天數(含頭含尾含週末)→ 對應加分等級。<br>
-                        必須出發日落在「Band 起始 ~ 疫情期間」之內才能提交;若跨疫情邊界(出發在內、回台在外)整段仍計入。
+                        每段出差填「出發日 + 回台日」,系統自動計算總天數(含頭含尾含週末)。<br>
+                        加分門檻:合計 30-59 天 +1、60-89 天 +2、90-119 天 +3、120-149 天 +4、150-179 天 +5、≥180 天 +6;<b>不足 30 天不加分</b>。
                       </div>
                     `;
                   })() : item.listingMode ? (() => {
@@ -2560,7 +2560,9 @@ function renderEmployeeForm() {
                       : (summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列');
                     const scoreText = noneFlag
                       ? '不加分'
-                      : (summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分');
+                      : (item.reviewerScoring && summary.totalCount > 0 && summary.ineligibleCount < summary.totalCount
+                          ? '待主管填分'
+                          : (summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分'));
                     return `
                       <div class="ipp-auto-summary" data-listed-summary data-listed-item="${item.id}">
                         <span class="ipp-auto-label">自動計算</span>
@@ -2569,7 +2571,18 @@ function renderEmployeeForm() {
                         <span class="ipp-auto-stats" data-listed-stats>
                           ${noneFlag
                             ? '員工已確認本項無可加分'
-                            : (summary.totalCount === 0 ? `請列舉每個 ${item.name} 項目,或勾選下方「本項無可列舉」` : '主管審核後實際採用「接受」筆數的等級分數加總')}
+                            : (summary.totalCount === 0
+                                ? `請列舉每個 ${item.name} 項目,或勾選下方「本項無可列舉」`
+                                : (summary.ineligibleCount > 0
+                                    ? (() => {
+                                        const parts = [];
+                                        if (summary.futureCount > 0) parts.push(`${summary.futureCount} 筆未來日期`);
+                                        if (summary.earlyCount > 0) parts.push(`${summary.earlyCount} 筆早於 Band 起始`);
+                                        return `<span style="color:var(--accent);">⚠ ${parts.join('、')},不會計入</span>`;
+                                      })()
+                                    : (item.reviewerScoring
+                                        ? '主管審核時會逐筆決定是否接受並填入分數'
+                                        : '主管審核後實際採用「接受」筆數的等級分數加總')))}
                         </span>
                       </div>
                       <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--ink-soft);cursor:${isLocked ? 'not-allowed' : 'pointer'};">
@@ -5363,7 +5376,7 @@ function updateTravelSummary() {
   let levelText;
   if (summary.totalCount === 0) levelText = '尚未填寫';
   else if (summary.levelLabel) levelText = summary.levelLabel;
-  else levelText = `無 (合計 ${summary.eligibleDays} 天 < 30)`;
+  else levelText = `不足 30 天 (合計 ${summary.eligibleDays} 天)`;
 
   const lvlEl = summaryEl.querySelector('[data-travel-level]');
   const scoreEl = summaryEl.querySelector('[data-travel-score]');
@@ -5404,7 +5417,7 @@ function updateTravelSummary() {
     }
     const eligible = isTravelEligible(startDate, endDate, bandSince, cp);
     if (eligible) {
-      tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分 · ${days} 天</span>`;
+      tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-in">✓ 符合條件 · ${days} 天</span>`;
     } else {
       const sYM = ymdToYearMonth(startDate);
       let reason = '不符計分條件';
@@ -5516,16 +5529,30 @@ function updateListedSummary(container) {
       ? '本項無可列舉'
       : (summary.totalCount === 0 ? '尚未列舉' : summary.totalCount + ' 筆已列');
   }
-  if (scoreEl) scoreEl.textContent = summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分';
+  if (scoreEl) {
+    if (noneFlag) {
+      scoreEl.textContent = '不加分';
+    } else if (item.reviewerScoring && summary.totalCount > 0 && summary.ineligibleCount < summary.totalCount) {
+      // reviewerScoring 項目:只要有任一筆 eligible 就顯示「待主管填分」,不預估
+      scoreEl.textContent = '待主管填分';
+    } else {
+      scoreEl.textContent = summary.totalScore > 0 ? '預估 +' + summary.totalScore + ' 分' : '不加分';
+    }
+  }
   if (statsEl) {
     if (noneFlag) {
       statsEl.textContent = '員工已確認本項無可加分';
     } else if (summary.totalCount === 0) {
       statsEl.textContent = `請列舉每個 ${item.name} 項目,或勾選下方「本項無可列舉」`;
     } else if (summary.ineligibleCount > 0) {
-      statsEl.innerHTML = `<span style="color:var(--accent);">⚠ ${summary.ineligibleCount} 筆早於 Band 起始,不會計入</span>`;
+      const parts = [];
+      if (summary.futureCount > 0) parts.push(`${summary.futureCount} 筆未來日期`);
+      if (summary.earlyCount > 0) parts.push(`${summary.earlyCount} 筆早於 Band 起始`);
+      statsEl.innerHTML = `<span style="color:var(--accent);">⚠ ${parts.join('、')},不會計入</span>`;
     } else {
-      statsEl.textContent = '主管審核後實際採用「接受」筆數的等級分數加總';
+      statsEl.textContent = item.reviewerScoring
+        ? '主管審核時會逐筆決定是否接受並填入分數'
+        : '主管審核後實際採用「接受」筆數的等級分數加總';
     }
   }
 }
@@ -5939,9 +5966,10 @@ function collectAndValidateEmpForm() {
   const bandSince = bandSinceEl ? normalizeYearMonth(bandSinceEl.value) : '';
   if (!bandSince) problems.push('請先填寫「當前 Band 起始年月」');
 
-  // 檢查每列 single 細項
+  // 檢查每列 single 細項(Travel 有獨立 validator 跳過)
   document.querySelectorAll('.form-items .detail-multi').forEach(container => {
     const itemId = container.dataset.itemId || '';
+    if (itemId === 'travel') return;  // Travel 由後面專屬 validator 處理
     container.querySelectorAll('.detail-multi-row').forEach(row => {
       const txt = row.querySelector('input[type="text"]');
       const ym = row.querySelector('input[type="month"]');
@@ -7353,17 +7381,21 @@ function summarizeListedItem(item, detailArr, options = {}) {
   let pendingCount = 0;
   let rejectedCount = 0;
   let ineligibleCount = 0;
+  let futureCount = 0;
+  let earlyCount = 0;
   const byLevel = {};
   const classified = [];
   (detailArr || []).forEach(d => {
     const ym = normalizeYearMonth(d.occurredAt);
-    // 未來日期 → ineligible(不計分)
+    // 未來日期 → 不計分(獨立計數)
     if (ym && isFutureYearMonth(ym)) {
       ineligibleCount++;
+      futureCount++;
       return;
     }
     if (bandSince && ym && compareYearMonth(ym, bandSince) < 0) {
       ineligibleCount++;
+      earlyCount++;
       return;
     }
     const opt = item.options.find(o => o.id === d.level);
@@ -7442,6 +7474,8 @@ function summarizeListedItem(item, detailArr, options = {}) {
     pendingScore: previewScore - acceptedScore, pendingCount,
     rejectedCount,
     ineligibleCount,
+    futureCount,
+    earlyCount,
     totalCount: acceptedCount + pendingCount + rejectedCount + ineligibleCount,
     byLevel,
   };
@@ -7641,7 +7675,7 @@ function renderTravelDetailInputs(values, disabled, bandSince, covidPeriod) {
       } else {
         const eligible = isTravelEligible(d.startDate, d.endDate, bandSince, covidPeriod);
         if (eligible) {
-          tag = `<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分 · ${days} 天</span>`;
+          tag = `<span class="ipp-row-tag ipp-row-tag-in">✓ 符合條件 · ${days} 天</span>`;
         } else {
           const sYM = ymdToYearMonth(d.startDate);
           const cp = covidPeriod || {};
