@@ -818,6 +818,7 @@ h1, h2, h3 { font-family: 'Fraunces', 'Noto Sans TC', serif; font-weight: 600; l
 }
 .ipp-row-tag-in  { background: rgba(74,107,58,0.12);  color: var(--green); }
 .ipp-row-tag-out { background: rgba(176,141,58,0.15); color: var(--gold); }
+.ipp-row-tag-warn{ background: rgba(139,46,31,0.10);  color: var(--accent); }
 
 /* IPP 細項列裡的 weight 下拉 */
 .detail-multi-row > input[type="number"][class$="-weight"] {
@@ -4386,9 +4387,16 @@ function updateIppSummary() {
     }
     if (name && occurredAt) {
       const inBand = isIppInBandPeriod(occurredAt, bandSince);
-      tagEl.innerHTML = inBand
-        ? '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>'
-        : '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
+      const winp = row.querySelector('input.emp-detail-weight');
+      const w = winp ? parseFloat(winp.value) : NaN;
+      const hasValidWeight = isFinite(w) && w > 0 && w <= 1;
+      if (!inBand) {
+        tagEl.innerHTML = '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
+      } else if (hasValidWeight) {
+        tagEl.innerHTML = '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>';
+      } else {
+        tagEl.innerHTML = '<span class="ipp-row-tag ipp-row-tag-warn">⚠ 期間內 · 待填權重</span>';
+      }
     } else {
       tagEl.innerHTML = '';
     }
@@ -5667,9 +5675,15 @@ function renderDetailMultiInputs(className, dataAttrs, values, placeholder, disa
     let ippTag = '';
     if (isIpp && d.name && normalizeYearMonth(d.occurredAt)) {
       const inBand = isIppInBandPeriod(d.occurredAt, bandSince);
-      ippTag = inBand
-        ? '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>'
-        : '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
+      const w = parseFloat(d.weight);
+      const hasValidWeight = isFinite(w) && w > 0 && w <= 1;
+      if (!inBand) {
+        ippTag = '<span class="ipp-row-tag ipp-row-tag-out">ⓘ 期間外 · 僅統計</span>';
+      } else if (hasValidWeight) {
+        ippTag = '<span class="ipp-row-tag ipp-row-tag-in">✓ 計入加分</span>';
+      } else {
+        ippTag = '<span class="ipp-row-tag ipp-row-tag-warn">⚠ 期間內 · 待填權重</span>';
+      }
     }
     // IPP weight 數字輸入(0 < x ≤ 1,小數最多 2 位;例:1 人 = 1、2 人共掛 = 0.5、3 人 = 0.33)
     const weightField = isIpp ? `
