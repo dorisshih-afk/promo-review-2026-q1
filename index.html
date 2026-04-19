@@ -1630,9 +1630,10 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'toeic', name: 'TOEIC 英文檢定', type: 'single',
-    scoreInputMode: true,  // 員工填「分數」數字而非下拉,系統按 score 自動對到 option
+    scoreInputMode: true,
     needsAttachmentHint: true,
-    note: '填 TOEIC 總分(0-990);系統自動對應等級:470-725 = +1、730-855 = +3、860-990 = +5',
+    validityMonths: 24,  // 有效期 2 年 — 考試年月超過即不計入
+    note: '填 TOEIC 總分(0-990)及考試年月;系統自動對應等級,證照有效期 2 年',
     options: [
       { id: 'gold',  label: '860-990(金色)', score: 5, minScore: 860, maxScore: 990 },
       { id: 'blue',  label: '730-855(藍色)', score: 3, minScore: 730, maxScore: 855 },
@@ -1652,10 +1653,9 @@ const EXTRA_CONTRIBUTION_ITEMS = [
   },
   {
     id: 'other_cert', name: '其他證照', type: 'single',
-    listingMode: true, reviewerScoring: true, needsAttachmentHint: true,
+    listingMode: true, countListingMode: true, reviewerScoring: true, needsAttachmentHint: true,
     note: '列舉其他證照(如 PMP/PMI/NPDP 等);主管逐筆填分 + ✓/✗ 決定',
     options: [
-      // 隱含 level(reviewerScoring 模式下 level 不影響計分,分數主管填)
       { id: 'listed', label: '(已列舉)', score: 0 }
     ]
   },
@@ -1685,6 +1685,14 @@ const EXTRA_CONTRIBUTION_ITEMS = [
     options: [
       { id: 'selected', label: '入選', score: 1 },
       { id: 'won', label: '獲獎', score: 3 }
+    ]
+  },
+  {
+    id: 'others', name: 'Others 其他加分項', type: 'single',
+    listingMode: true, countListingMode: true, reviewerScoring: true,
+    note: '未列於七大項的其他貢獻;員工只填描述,主管逐筆填分 + ✓/✗ 決定',
+    options: [
+      { id: 'listed', label: '(已列舉)', score: 0 }
     ]
   }
 ];
@@ -2001,6 +2009,14 @@ function getEmployeeBonus(empId) {
       : data.items?.[item.id];
     if (item.type === 'single') {
       if (!sel || sel === 'none') return;
+      // scoreInputMode + validityMonths:檢查考試日期是否過期
+      if (item.scoreInputMode && item.validityMonths) {
+        const details = normalizeDetail(data.itemDetails?.[item.id]);
+        const testDate = details[0]?.occurredAt || '';
+        if (testDate && isScoreExpired(testDate, item.validityMonths)) {
+          return;  // 過期 → 不加分
+        }
+      }
       const opt = item.options.find(o => o.id === sel);
       if (opt && opt.score > 0) {
         total += opt.score;
@@ -2019,11 +2035,16 @@ function getEmployeeBonus(empId) {
       });
     }
   });
-  // Others 自由填的分數
-  const othersScore = Number(data.others) || 0;
-  if (othersScore > 0) {
-    total += othersScore;
-    breakdown.push({ itemName: 'Others', label: data.othersNote || '(未填說明)', score: othersScore, detail: '' });
+  // Others 向下相容:若是舊資料(data.others 數字且沒走 listing-mode 路徑)也計入
+  // 新 others item 已經在上面 forEach 的 listingMode 分支處理;這裡只處理「extraBonus 裡還留舊形狀」的情況
+  // 判定:如果上面沒任何 breakdown 來自 Others,才讀 legacy data.others
+  const hasOthersBreakdown = breakdown.some(b => b.itemName === 'Others 其他加分項' || b.itemName === 'Others');
+  if (!hasOthersBreakdown) {
+    const othersScore = Number(data.others) || 0;
+    if (othersScore > 0) {
+      total += othersScore;
+      breakdown.push({ itemName: 'Others', label: data.othersNote || '(未填說明)', score: othersScore, detail: '' });
+    }
   }
   // note 給 CSV 用,把細項也帶進去
   const noteStr = breakdown.map(b => {
@@ -2472,7 +2493,6 @@ function renderEmployeeForm() {
               <div class="form-item-row ${isReviewed ? renderItemReviewClass(review) : ''}">
                 <div class="form-item-name">
                   ${escapeHtml(item.name)}
-                  ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
                   ${isReviewed ? renderItemReviewBadge(review, item, sel) : ''}
                 </div>
                 <div class="form-item-control">
@@ -2551,21 +2571,22 @@ function renderEmployeeForm() {
                       </div>
                       <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--ink-soft);cursor:${isLocked ? 'not-allowed' : 'pointer'};">
                         <input type="checkbox" class="emp-listed-none" data-item="${item.id}" ${noneFlag ? 'checked' : ''} ${isLocked ? 'disabled' : ''}>
-                        <span>本項無可列舉(我確定沒有 ${escapeHtml(item.name)} 可加分)</span>
+                        <span>本項無可列舉</span>
                       </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
-                        💡 ${item.countListingMode
-                            ? `逐筆列舉 ${escapeHtml(item.name)} 項目(項目名 + 月份)。`
-                            : `每列填一個 ${escapeHtml(item.name)} 項目:選等級、寫項目名稱、發生年月。`}<br>
                         ${item.levelCaps ? (() => {
-                          // 針對 levelCaps 生成人類可讀的「等級規則」
                           const rules = [];
                           Object.keys(item.levelCaps).forEach(lvl => {
                             const opt = item.options.find(o => o.id === lvl);
-                            const lvlName = opt ? opt.label : lvl;
+                            const isUnnamed = (opt?.id === 'listed');  // countListingMode 的 label 是 "(已列舉)"
+                            const lvlName = isUnnamed ? '筆' : (opt?.label || lvl);
                             const caps = item.levelCaps[lvl].slice().sort((a,b)=>a.count-b.count);
                             const parts = caps.map((c, i) => {
                               const next = caps[i+1];
+                              if (isUnnamed) {
+                                if (next) return `${c.count} 筆 = +${c.score}`;
+                                return `≥${c.count} 筆 封頂 +${c.score}`;
+                              }
                               if (next) return `${c.count} 個 ${lvlName} = +${c.score}`;
                               return `≥${c.count} 個 ${lvlName} 封頂 +${c.score}`;
                             });
@@ -2573,41 +2594,49 @@ function renderEmployeeForm() {
                           });
                           const uncappedLevels = item.options.filter(o => !item.levelCaps[o.id]);
                           const uncapped = uncappedLevels.map(o => `每個 ${o.label} +${o.score}`).join('、');
-                          return `計分規則:${rules.join(';')}${uncapped ? ';' + uncapped + '(無封頂,各自加總)' : ''}。<br>`;
-                        })() : '主管會逐筆審核 ✓ 接受 / ✗ 拒絕,接受的列各自加分,加總為本項目最終分數。<br>'}
-                        ${item.needsAttachmentHint ? `<span style="color:var(--accent);">📧 請務必拍攝證照證明圖檔,mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</span><br>` : ''}
-                        若本項真無可列舉,請勾上方「本項無可列舉」明確表態。
+                          return `💡 計分規則:${rules.join(';')}${uncapped ? ';' + uncapped : ''}。`;
+                        })() : ''}
+                        ${item.needsAttachmentHint ? `<br><span style="color:var(--accent);">📧 請拍攝證照證明圖檔 mail 寄給 doris.shih@lcfuturecenter.com。</span>` : ''}
                       </div>
                     `;
                   })() : item.scoreInputMode ? (() => {
-                    // 用舊 cert 資料 fallback 推當前 level
                     const curLevel = resolveSingleItemLevel(item.id, data);
-                    const curStored = data.itemDetails?.[item.id];  // [{name:'score', score:820}] form
+                    const curStored = data.itemDetails?.[item.id];
                     const curScoreVal = (curStored && curStored[0] && curStored[0].score) || '';
+                    const curTestDate = (curStored && curStored[0] && curStored[0].occurredAt) || '';
                     const curOpt = item.options.find(o => o.id === curLevel);
                     const curLabel = curOpt ? curOpt.label : '';
                     const curBonus = curOpt ? curOpt.score : 0;
+                    // 檢查是否過期(TOEIC 有 validityMonths,從考試年月起算)
+                    const expired = item.validityMonths && curTestDate
+                      ? isScoreExpired(curTestDate, item.validityMonths)
+                      : false;
+                    const effectiveBonus = expired ? 0 : curBonus;
+                    const effectiveLabel = expired ? '已過期 · 不加分' : (curLabel || '未考 / 不加分');
                     return `
                       <div class="ipp-auto-summary" data-score-input-summary data-score-item="${item.id}">
                         <span class="ipp-auto-label">分數</span>
-                        <input type="number" class="emp-score-input" data-score-item="${item.id}" value="${escapeHtml(String(curScoreVal))}" min="0" max="990" step="1" placeholder="例: 820" style="width:100px;background:var(--bg);border:1px solid var(--line-soft);padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);" ${isLocked ? 'disabled' : ''}>
-                        <span class="ipp-auto-level" data-score-level>${curLabel || '尚未填分'}</span>
-                        <span class="ipp-auto-score" data-score-bonus>${curBonus > 0 ? '+' + curBonus + ' 分' : '不加分'}</span>
+                        <input type="number" class="emp-score-input" data-score-item="${item.id}" value="${escapeHtml(String(curScoreVal))}" min="0" max="990" step="1" placeholder="未考請留空" style="width:120px;background:var(--bg);border:1px solid var(--line-soft);padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);" ${isLocked ? 'disabled' : ''}>
+                        <span class="ipp-auto-label" style="margin-left:10px;">考試年月</span>
+                        <input type="month" class="emp-score-testdate" data-score-item="${item.id}" value="${escapeHtml(curTestDate)}" style="width:130px;background:var(--bg);border:1px solid var(--line-soft);padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);" ${isLocked ? 'disabled' : ''}>
+                        <span class="ipp-auto-level" data-score-level>${escapeHtml(effectiveLabel)}</span>
+                        <span class="ipp-auto-score" data-score-bonus>${effectiveBonus > 0 ? '+' + effectiveBonus + ' 分' : '不加分'}</span>
                       </div>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
-                        💡 填入 ${escapeHtml(item.name)} 總分數字(0-990),系統自動判定等級。<br>
-                        分數對應:860-990 = +5、730-855 = +3、470-725 = +1、< 470 不加分。<br>
-                        ${item.needsAttachmentHint ? `<span style="color:var(--accent);">📧 請務必拍攝證照證明圖檔,mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</span>` : ''}
+                        💡 計分規則:860-990 = +5、730-855 = +3、470-725 = +1、< 470 不加分。
+                        ${item.validityMonths ? `<br><span style="color:var(--accent);">⚠ 有效期 ${Math.floor(item.validityMonths / 12)} 年,考試日期超過即不計入。</span>` : ''}
+                        ${item.needsAttachmentHint ? `<br><span style="color:var(--accent);">📧 請拍攝證照證明圖檔 mail 寄給 doris.shih@lcfuturecenter.com。</span>` : ''}
                       </div>
                     `;
                   })() : `
                     <select class="emp-select" data-item="${item.id}" ${isLocked ? 'disabled' : ''}>
                       <option value="" ${!sel ? 'selected' : ''}>-- 請選擇 --</option>
                       ${item.options.map(o => `
-                        <option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${escapeHtml(o.label)}${o.score > 0 ? ' (+' + o.score + ')' : ''}</option>
+                        <option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${escapeHtml(o.label)}</option>
                       `).join('')}
                     </select>
-                    ${item.needsAttachmentHint ? `<div style="font-size:11px;color:var(--accent);margin-top:6px;">📧 請務必拍攝證照證明圖檔,mail 寄給 doris.shih@lcfuturecenter.com 以供核實。</div>` : ''}
+                    ${item.id === 'jlpt' ? `<div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">💡 N1 = +5 分、N2 = +3 分;N3/N4/N5 不加分。日文證照永久有效。</div>` : ''}
+                    ${item.needsAttachmentHint ? `<div style="font-size:11px;color:var(--accent);margin-top:6px;">📧 請拍攝證照證明圖檔 mail 寄給 doris.shih@lcfuturecenter.com。</div>` : ''}
                   `}
                   ${item.id === 'travel'
                     ? renderTravelDetailInputs(
@@ -2617,6 +2646,8 @@ function renderEmployeeForm() {
                         state.covidPeriod || {}
                       )
                     : item.scoreInputMode
+                    ? ''
+                    : item.id === 'jlpt'
                     ? ''
                     : renderDetailMultiInputs(
                         'emp-detail',
@@ -2638,7 +2669,6 @@ function renderEmployeeForm() {
               <div class="form-item-row">
                 <div class="form-item-name">
                   ${escapeHtml(item.name)}
-                  ${item.note ? `<div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">${escapeHtml(item.note)}</div>` : ''}
                 </div>
                 <div class="form-item-control">
                   <div class="bonus-multi-list">
@@ -2671,21 +2701,6 @@ function renderEmployeeForm() {
             `;
           }
         }).join('')}
-
-        <div class="form-item-row" style="background:rgba(176,141,58,0.04);">
-          <div class="form-item-name">
-            Others
-            <div style="font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;">列舉未列在七大項的貢獻,需 Promotion Committee Review 後核定加分</div>
-            ${isReviewed ? renderItemReviewBadge(sub.reviewedItems?.others, null, null) : ''}
-          </div>
-          <div class="form-item-control">
-            <div style="display:flex;gap:10px;align-items:center;">
-              <input type="number" step="0.1" min="0" max="20" value="${data.others || 0}" data-others="score" class="emp-others bonus-input" style="width:80px;text-align:center;" ${isLocked ? 'disabled' : ''}>
-              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);">分(建議)</span>
-              <input type="text" value="${escapeHtml(data.othersNote || '')}" placeholder="說明(例: 特殊專案貢獻)" data-others="note" class="emp-others bonus-input" style="flex:1;font-size:13px;" ${isLocked ? 'disabled' : ''}>
-            </div>
-          </div>
-        </div>
       </div>
 
       ${!isLocked ? `
@@ -5031,6 +5046,15 @@ function attachHandlers() {
     inp.addEventListener('input', handler);
     inp.addEventListener('change', handler);
   });
+  // TOEIC test date input 即時重算
+  document.querySelectorAll('input.emp-score-testdate').forEach(dateInp => {
+    dateInp.addEventListener('change', () => {
+      const itemId = dateInp.dataset.scoreItem;
+      const scoreInp = document.querySelector(`input.emp-score-input[data-score-item="${itemId}"]`);
+      if (scoreInp) updateScoreInputSummary(scoreInp);
+      updateAppliedTotal();
+    });
+  });
   // 主管端「其他證照」分數輸入 — 主管輸入後 change 時寫回 state
   document.querySelectorAll('input.reviewer-score-input').forEach(inp => {
     inp.addEventListener('change', async () => {
@@ -5168,6 +5192,10 @@ function updateAppliedTotal() {  const totalEl = document.querySelector('[data-a
       if (!inp) return;
       const n = parseFloat(inp.value);
       if (!isFinite(n)) return;
+      const dateInp = document.querySelector(`input.emp-score-testdate[data-score-item="${item.id}"]`);
+      const testDate = dateInp ? normalizeYearMonth(dateInp.value) : '';
+      const expired = item.validityMonths && testDate && isScoreExpired(testDate, item.validityMonths);
+      if (expired) return;  // 過期不加分
       const opt = item.options.find(o => typeof o.minScore === 'number' && n >= o.minScore && n <= o.maxScore);
       if (opt) total += opt.score;
       return;
@@ -5364,9 +5392,13 @@ function updateScoreInputSummary(inp) {
   if (!box) return;
   const lvlEl = box.querySelector('[data-score-level]');
   const bonusEl = box.querySelector('[data-score-bonus]');
-  const raw = (inp.value || '').trim();
+  // 跟 score input 同組的 testdate input
+  const scoreInput = box.querySelector(`input.emp-score-input[data-score-item="${itemId}"]`);
+  const testDateInput = box.querySelector(`input.emp-score-testdate[data-score-item="${itemId}"]`);
+  const raw = (scoreInput ? scoreInput.value : '').trim();
+  const testDate = testDateInput ? normalizeYearMonth(testDateInput.value) : '';
   if (!raw) {
-    if (lvlEl) lvlEl.textContent = '尚未填分';
+    if (lvlEl) lvlEl.textContent = '未考 / 不加分';
     if (bonusEl) bonusEl.textContent = '不加分';
     return;
   }
@@ -5380,8 +5412,16 @@ function updateScoreInputSummary(inp) {
     typeof o.minScore === 'number' && typeof o.maxScore === 'number' &&
     n >= o.minScore && n <= o.maxScore
   );
-  if (lvlEl) lvlEl.textContent = opt ? opt.label : `${n} 分(超出範圍)`;
-  if (bonusEl) bonusEl.textContent = (opt && opt.score > 0) ? '+' + opt.score + ' 分' : '不加分';
+  const expired = item.validityMonths && testDate
+    ? isScoreExpired(testDate, item.validityMonths)
+    : false;
+  if (expired) {
+    if (lvlEl) lvlEl.textContent = '已過期 · 不加分';
+    if (bonusEl) bonusEl.textContent = '不加分';
+  } else {
+    if (lvlEl) lvlEl.textContent = opt ? opt.label : `${n} 分(超出範圍)`;
+    if (bonusEl) bonusEl.textContent = (opt && opt.score > 0) ? '+' + opt.score + ' 分' : '不加分';
+  }
 }
 
 // Listing-mode summary 即時重算(STAMP 等):從 DOM 收每列的 level + name 算總和
@@ -5895,7 +5935,7 @@ function collectAndValidateEmpForm() {
     });
   });
 
-  // scoreInputMode(TOEIC):若有填分數,必須是 0-990 的有效數字
+  // scoreInputMode(TOEIC):若有填分數,必須是 0-990 的有效數字,且有效期項目須填考試年月
   document.querySelectorAll('input.emp-score-input').forEach(inp => {
     const itemId = inp.dataset.scoreItem;
     const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
@@ -5905,6 +5945,21 @@ function collectAndValidateEmpForm() {
     const n = parseFloat(raw);
     if (!isFinite(n) || n < 0 || n > 990 || String(n) !== raw) {
       problems.push(`${itemDef.name}: 分數「${raw}」無效,須為 0-990 的整數`);
+      return;
+    }
+    // 若該項有 validityMonths(例如 TOEIC 2 年),且有實際達到加分門檻的分數 → 必須填考試年月
+    if (itemDef.validityMonths) {
+      const hasValidScore = itemDef.options.some(o =>
+        typeof o.minScore === 'number' && n >= o.minScore && n <= o.maxScore &&
+        o.id !== 'none' && o.score > 0
+      );
+      if (hasValidScore) {
+        const dateInp = document.querySelector(`input.emp-score-testdate[data-score-item="${itemId}"]`);
+        const testDate = dateInp ? normalizeYearMonth(dateInp.value) : '';
+        if (!testDate) {
+          problems.push(`${itemDef.name}: 填了分數 ${n} 須同時填考試年月(用於判定證照有效期)`);
+        }
+      }
     }
   });
 
@@ -6006,37 +6061,39 @@ async function collectAndSaveEmpForm(newStatus) {
     else if (sel.value === 'none' || sel.value === '') delete sub.data.items[itemId];
   });
 
-  // scoreInputMode(TOEIC):員工填數字 → 自動對到 option 當 level
+  // scoreInputMode(TOEIC):員工填數字 + 考試年月 → 自動對 level,過期時不寫 items.X 但保留 itemDetails
   document.querySelectorAll('input.emp-score-input').forEach(inp => {
     const itemId = inp.dataset.scoreItem;
     const itemDef = EXTRA_CONTRIBUTION_ITEMS.find(i => i.id === itemId);
     if (!itemDef || !itemDef.scoreInputMode) return;
+    const testDateInp = document.querySelector(`input.emp-score-testdate[data-score-item="${itemId}"]`);
+    const testDate = testDateInp ? normalizeYearMonth(testDateInp.value) : '';
     const raw = (inp.value || '').trim();
     if (!raw) {
-      // 空值 → 清掉
       delete sub.data.items[itemId];
       delete sub.data.itemDetails[itemId];
       return;
     }
     const n = parseFloat(raw);
     if (!isFinite(n) || n < 0) {
-      // 非法 → 清,validator 另外擋
       delete sub.data.items[itemId];
       delete sub.data.itemDetails[itemId];
       return;
     }
-    // 找對應 option(按 minScore/maxScore 區間)
     const matched = itemDef.options.find(o =>
       typeof o.minScore === 'number' && typeof o.maxScore === 'number' &&
       n >= o.minScore && n <= o.maxScore
     );
-    if (matched && matched.id !== 'none' && matched.score > 0) {
+    const expired = itemDef.validityMonths && testDate
+      ? isScoreExpired(testDate, itemDef.validityMonths)
+      : false;
+    if (matched && matched.id !== 'none' && matched.score > 0 && !expired) {
       sub.data.items[itemId] = matched.id;
-      sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: '' }];
+      sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: testDate }];
     } else {
-      // 分數太低,不加分
+      // 分數太低 or 過期 → 不加分,但仍保留分數+日期作為紀錄
       delete sub.data.items[itemId];
-      sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: '' }];  // 仍保留分數作為紀錄
+      sub.data.itemDetails[itemId] = [{ name: 'score', score: n, occurredAt: testDate }];
     }
   });
 
@@ -6964,6 +7021,21 @@ function compareYearMonth(a, b) {
   return a < b ? -1 : 1;
 }
 
+// 考試年月是否已過有效期(以當前時間為基準)
+// testYM: 'YYYY-MM';validityMonths: 例如 24(兩年)
+// 回傳 true 表示已過期、false 表示仍有效
+function isScoreExpired(testYM, validityMonths) {
+  if (!testYM || !validityMonths) return false;
+  const normalized = normalizeYearMonth(testYM);
+  if (!normalized) return false;
+  const [y, m] = normalized.split('-').map(Number);
+  // 加上 validityMonths 得到「失效月份」
+  const expireDate = new Date(y, m - 1 + validityMonths, 1);
+  const now = new Date();
+  // 簡單比對:expire 月若 ≤ 現在月就過期
+  return expireDate <= new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
 // 取得「現在月份往前推 N 年」的 YYYY-MM 字串
 function yearMonthNYearsAgo(years) {
   const now = new Date();
@@ -7126,6 +7198,23 @@ function migrateListedDetails(item, sub, data) {
         });
       });
       if (migrated.length > 0) return migrated;
+    }
+  }
+  // === 舊 Others 資料 → 新 others listing migration ===
+  // 舊形狀:data.others = 1.5, data.othersNote = "xxx", sub.reviewedItems.others = 'accepted'
+  if (item.id === 'others') {
+    const existing = normalizeDetail(data.itemDetails?.others);
+    const legacyScore = Number(data.others) || 0;
+    const legacyNote = (data.othersNote || '').trim();
+    if (existing.length === 0 && (legacyScore > 0 || legacyNote)) {
+      const decLegacy = sub.reviewedItems?.others || 'pending';
+      return [{
+        name: legacyNote || '(舊資料未填描述)',
+        occurredAt: '',
+        level: 'listed',
+        reviewDecision: decLegacy,
+        ...(legacyScore > 0 && decLegacy === 'accepted' ? { reviewerScore: legacyScore } : {})
+      }];
     }
   }
   // === 一般 listing-mode migration(既有邏輯) ===
