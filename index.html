@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.7';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.10';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2891,7 +2891,7 @@ function renderEmpBonusForReviewer(emp) {
         const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
         const rowsHtml = detailArr.map(d => {
           const opt = item.options.find(o => o.id === d.level);
-          const optLabel = item.countListingMode ? '' : (opt ? opt.label : '(未設等級)');
+          const optLabel = (item.countListingMode || item.ippMode || item.travelMode) ? '' : (opt ? opt.label : '(未設等級)');
           const dec = d.reviewDecision || 'pending';
           let decBadge;
           if (dec === 'accepted') decBadge = '<span style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:0.06em;">✓ 已接受</span>';
@@ -3000,9 +3000,10 @@ function renderEmpBonusForReviewer(emp) {
         if (!opt) return;
         const review = sub.reviewedItems?.[item.id];
         const detailArr = normalizeDetail(data.itemDetails?.[item.id]);
+        // JLPT 僅用下拉選項,無需額外說明;其他項目若沒填細項顯示提示
         const detailHtml = detailArr.length > 0
           ? detailArr.map(d => `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">• ${escapeHtml(d.name)}${d.occurredAt ? ` <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>` : ''}</div>`).join('')
-          : '<div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:2px;font-style:italic;">(未填具體說明)</div>';
+          : (item.id === 'jlpt' ? '' : '<div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:2px;font-style:italic;">(未填具體說明)</div>');
         lines.push(`
           <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
             <div style="font-size:13px;color:var(--ink);">
@@ -3189,7 +3190,12 @@ function renderManagerScoring() {
 
       ${state.dimensions.length === 0 ? `
         <div class="empty">尚未設定評分維度,請通知管理者於後台新增。</div>
-      ` : state.dimensions.map(d => {
+      ` : `
+        <div style="background:rgba(176,141,58,0.08);border-left:3px solid var(--gold);padding:12px 16px;margin-bottom:14px;font-size:13px;color:var(--ink-soft);line-height:1.6;">
+          <b>💡 評分提醒</b><br>
+          單項分數 <b>4 分以下</b> 代表您認為此人<b>尚不具備進入下一職等的這項能力</b>。請依實際觀察評分,勿受其他因素影響。
+        </div>
+        ${state.dimensions.map(d => {
         const val = typeof existing[d.id] === 'number' ? existing[d.id] : 3.0;
         return `
           <div class="dimension">
@@ -3205,6 +3211,7 @@ function renderManagerScoring() {
           </div>
         `;
       }).join('')}
+      `}
 
       <div class="scoring-footer">
         <div style="font-size:12px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.1em;">
@@ -3673,7 +3680,7 @@ function renderEmpBonusForAdmin(emp) {
       const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });
       const rowsHtml = detailArr.map(d => {
         const opt = item.options.find(o => o.id === d.level);
-        const optLabel = item.countListingMode ? '' : (opt ? opt.label : '(未設等級)');
+        const optLabel = (item.countListingMode || item.ippMode || item.travelMode) ? '' : (opt ? opt.label : '(未設等級)');
         const optScore = opt ? opt.score : 0;
         const dec = d.reviewDecision || 'pending';
         let decBadge;
@@ -3788,7 +3795,7 @@ function renderEmpBonusForAdmin(emp) {
       const detailArr = normalizeDetail(data.itemDetails?.[item.id]);
       const detailHtml = detailArr.length > 0
         ? detailArr.map(d => `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">• ${escapeHtml(d.name)}${d.occurredAt ? ` <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">(${escapeHtml(d.occurredAt)})</span>` : ''}</div>`).join('')
-        : '<div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:2px;font-style:italic;">(未填具體說明)</div>';
+        : (item.id === 'jlpt' ? '' : '<div style="font-size:11px;color:var(--ink-muted);padding-left:14px;margin-top:2px;font-style:italic;">(未填具體說明)</div>');
       empLines.push(`
         <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
           <div style="font-size:13px;color:var(--ink);">
@@ -4406,7 +4413,7 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
     const summary = summarizeListedItem(item, detailArr, { bandSince: emp.bandSinceYYYYMM });  // 不 preview,純看實際 accepted
     const rowsHtml = detailArr.map((d, idx) => {
       const opt = item.options.find(o => o.id === d.level);
-      const optLabel = item.countListingMode ? '' : (opt ? opt.label : '(未設等級)');
+      const optLabel = (item.countListingMode || item.ippMode || item.travelMode) ? '' : (opt ? opt.label : '(未設等級)');
       const optScore = opt ? opt.score : 0;
       const dec = d.reviewDecision || 'pending';
       let decBadge;
