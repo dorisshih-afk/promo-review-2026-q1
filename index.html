@@ -1585,20 +1585,19 @@ const EXTRA_CONTRIBUTION_ITEMS = [
     ]
   },
   {
-    id: 'conference', name: 'Technical Conference / Paper', type: 'single',
+    id: 'conference', name: 'Technical Conference / Paper', type: 'single', listingMode: true,
+    note: '逐筆列舉每個 Conference / Paper 並選等級;主管逐筆審核,接受的列加總計分',
     options: [
-      { id: 'none', label: '無', score: 0 },
-      { id: 'company', label: '等級為公司級', score: 1 },
-      { id: 'external', label: '等級為外部', score: 5 }
+      { id: 'company', label: '公司級', score: 1 },
+      { id: 'external', label: '外部級', score: 5 }
     ]
   },
   {
-    id: 'award', name: 'Award (Internal / External)', type: 'single',
+    id: 'award', name: 'Award (Internal / External)', type: 'single', listingMode: true,
+    note: '逐筆列舉每個獎項並選等級;主管逐筆審核,接受的列加總計分',
     options: [
-      { id: 'none', label: '無', score: 0 },
-      { id: 'i1', label: '列舉項目 = 1', score: 1 },
-      { id: 'i2plus', label: '列舉項目 ≥ 2', score: 1.2 },
-      { id: 'external', label: 'External', score: 5 }
+      { id: 'internal', label: '公司內部獎項', score: 1 },
+      { id: 'external', label: '公司外部獎項', score: 5 }
     ]
   },
   {
@@ -1636,17 +1635,17 @@ const EXTRA_CONTRIBUTION_ITEMS = [
     ]
   },
   {
-    id: 'lecturer', name: '講師資格', type: 'single',
+    id: 'lecturer', name: '講師資格', type: 'single', listingMode: true,
+    note: '逐筆列舉每次講師經歷並選等級;主管逐筆審核,接受的列加總計分',
     options: [
-      { id: 'none', label: '無', score: 0 },
       { id: 'company', label: '公司級講師', score: 1 },
       { id: 'tech_conf', label: '技術大會講師', score: 1 }
     ]
   },
   {
-    id: 'linc', name: 'Linc 大賽', type: 'single',
+    id: 'linc', name: 'Linc 大賽', type: 'single', listingMode: true,
+    note: '逐筆列舉每次 Linc 參賽並選結果;主管逐筆審核,接受的列加總計分',
     options: [
-      { id: 'none', label: '無', score: 0 },
       { id: 'selected', label: '入選', score: 1 },
       { id: 'won', label: '獲獎', score: 3 }
     ]
@@ -2468,7 +2467,7 @@ function renderEmployeeForm() {
                         <span class="ipp-auto-stats" data-listed-stats>
                           ${noneFlag
                             ? '員工已確認本項無可加分'
-                            : (summary.totalCount === 0 ? '請列舉每個 KI 項目,或勾選下方「本項無可列舉」' : '主管審核後實際採用「接受」筆數的等級分數加總')}
+                            : (summary.totalCount === 0 ? `請列舉每個 ${item.name} 項目,或勾選下方「本項無可列舉」` : '主管審核後實際採用「接受」筆數的等級分數加總')}
                         </span>
                       </div>
                       <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--ink-soft);cursor:${isLocked ? 'not-allowed' : 'pointer'};">
@@ -2476,9 +2475,8 @@ function renderEmployeeForm() {
                         <span>本項無可列舉(我確定沒有 ${escapeHtml(item.name)} 可加分)</span>
                       </label>
                       <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;line-height:1.5;">
-                        💡 每列填一個 KI 項目:選等級(T2/T1/CEO)、寫項目名稱、發生年月。<br>
+                        💡 每列填一個 ${escapeHtml(item.name)} 項目:選等級、寫項目名稱、發生年月。<br>
                         主管會逐筆審核 ✓ 接受 / ✗ 拒絕,**接受的列各自加分,加總為本項目最終分數**。<br>
-                        例:列 T2(+2)、T1(+3)、CEO(+4)若全接受 → 共 +9 分。<br>
                         若本項真無可列舉,請勾上方「本項無可列舉」明確表態。
                       </div>
                     `;
@@ -5239,7 +5237,7 @@ function updateListedSummary(container) {
     if (noneFlag) {
       statsEl.textContent = '員工已確認本項無可加分';
     } else if (summary.totalCount === 0) {
-      statsEl.textContent = '請列舉每個 KI 項目,或勾選下方「本項無可列舉」';
+      statsEl.textContent = `請列舉每個 ${item.name} 項目,或勾選下方「本項無可列舉」`;
     } else if (summary.ineligibleCount > 0) {
       statsEl.innerHTML = `<span style="color:var(--accent);">⚠ ${summary.ineligibleCount} 筆早於 Band 起始,不會計入</span>`;
     } else {
@@ -6823,22 +6821,29 @@ function migrateListedDetails(item, sub, data) {
   const raw = data.itemDetails?.[item.id];
   const arr = normalizeDetail(raw);
   if (arr.length === 0) return arr;
-  const itemLevel = data.items?.[item.id];        // 舊全項等級
-  const itemReview = sub.reviewedItems?.[item.id]; // 舊全項審核狀態
-  // 若任一筆已有 level,認為是新格式,不 migrate;只補 reviewDecision 預設
+  const itemLevel = data.items?.[item.id];
+  const itemReview = sub.reviewedItems?.[item.id];
+  // 舊 option id → 新 option id remap(各項目改版時用)
+  // Award: i1 → internal, i2plus → internal(兩者都代表「內部獎項」,舊的 i2plus 是「計數封頂」概念在新制廢止)
+  const LEGACY_OPT_REMAP = {
+    award: { i1: 'internal', i2plus: 'internal' }
+  };
+  const remap = (lvl) => {
+    if (!lvl) return lvl;
+    const table = LEGACY_OPT_REMAP[item.id] || {};
+    return table[lvl] || lvl;
+  };
   const anyHasLevel = arr.some(d => d.level);
   if (anyHasLevel) {
     return arr.map(d => ({
       ...d,
-      level: d.level || itemLevel || '',
+      level: remap(d.level || itemLevel || ''),
       reviewDecision: d.reviewDecision || 'pending'
     }));
   }
-  // 舊資料 → 補 level + 推 reviewDecision
   let migratedReview = 'pending';
   if (itemReview === 'accepted') migratedReview = 'accepted';
   else if (itemReview === 'rejected') migratedReview = 'rejected';
-  // adjusted 視為 accepted,但用 adjustedTo 的 level
   let migratedLevel = itemLevel || '';
   if (itemReview && typeof itemReview === 'object' && itemReview.adjustedTo) {
     migratedReview = 'accepted';
@@ -6846,7 +6851,7 @@ function migrateListedDetails(item, sub, data) {
   }
   return arr.map(d => ({
     ...d,
-    level: migratedLevel,
+    level: remap(migratedLevel),
     reviewDecision: migratedReview
   }));
 }
