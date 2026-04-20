@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.24';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-19.25';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -4082,21 +4082,27 @@ function renderReviewTab() {
 
 function renderEmpSubmissionRow(emp, status) {
   const sub = getEmployeeSubmission(emp.id);
-  // 計算員工提交的總分
+  // 計算員工提交的總分 — 支援 listing-mode(用 summarizeListedItem preview) + TOEIC/JLPT(從 items 對 option)+ Others
   let appliedTotal = 0;
   let itemCount = 0;
+  const bandSince = emp.bandSinceYYYYMM || '';
   EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
-    const sel = sub.data?.items?.[item.id];
-    if (item.type === 'single') {
+    if (item.listingMode) {
+      // Listing-mode(STAMP / IPP / Travel / 其他證照 等):用 preview summary
+      const detailArr = normalizeDetail(sub.data?.itemDetails?.[item.id]);
+      if (detailArr.length === 0) return;
+      const sum = summarizeListedItem(item, detailArr, { preview: true, bandSince });
+      if (sum.previewScore > 0) {
+        appliedTotal += sum.previewScore;
+      }
+      // 有填就算一項,不論分數(reviewerScoring 項目例如其他證照,員工填了但分數由主管決定,preview 可能是 0)
+      if (detailArr.length > 0) itemCount++;
+    } else {
+      // TOEIC / JLPT:靠 data.items[itemId] 存 option id
+      const sel = sub.data?.items?.[item.id];
       if (!sel || sel === 'none') return;
       const opt = item.options.find(o => o.id === sel);
       if (opt) { appliedTotal += opt.score; itemCount++; }
-    } else {
-      const arr = Array.isArray(sel) ? sel : [];
-      arr.forEach(optId => {
-        const opt = item.options.find(o => o.id === optId);
-        if (opt) { appliedTotal += opt.score; itemCount++; }
-      });
     }
   });
   if (sub.data?.others > 0) { appliedTotal += sub.data.others; itemCount++; }
