@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-20.26';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-20.28';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2905,17 +2905,8 @@ function renderEmpBonusForReviewer(emp) {
       if (item.listingMode) {
         const noneFlag = !!data.itemNoneFlags?.[item.id];
         const detailArr = migrateListedDetails(item, sub, data);
-        // 員工勾了「本項無可列舉」→ 顯示一筆資訊列
+        // 員工勾了「本項無可列舉」→ 為求畫面簡潔直接隱藏(下游 empty state 處理整體空白)
         if (noneFlag && detailArr.length === 0) {
-          lines.push(`
-            <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
-              <div style="font-size:13px;color:var(--ink);">
-                <b>${escapeHtml(item.name)}</b>
-                <span style="color:var(--ink-soft);margin-left:6px;">— 員工已確認本項無可加分</span>
-                <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:8px;">不加分</span>
-              </div>
-            </div>
-          `);
           return;
         }
         if (detailArr.length === 0) return;
@@ -2998,7 +2989,12 @@ function renderEmpBonusForReviewer(emp) {
           const days = calcTravelDays(d.startDate, d.endDate);
           const eligible = days > 0 && isTravelEligible(d.startDate, d.endDate, emp.bandSinceYYYYMM, cp);
           const tagColor = eligible ? 'var(--green)' : 'var(--gold)';
-          const tagText = eligible ? `✓ 計入(${days} 天)` : (days > 0 ? `ⓘ 不計入(${days} 天)` : '⚠ 日期不全');
+          let tagText;
+          if (eligible) tagText = `✓ 計入(${days} 天)`;
+          else if (days > 0) {
+            const reason = travelIneligibleReason(d.startDate, d.endDate, emp.bandSinceYYYYMM, cp) || '不計入';
+            tagText = `ⓘ ${reason}(${days} 天)`;
+          } else tagText = '⚠ 日期不全';
           const dateStr = (d.startDate && d.endDate) ? `${d.startDate} → ${d.endDate}` : '日期未填齊';
           return `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">
             • ${escapeHtml(d.name || '(未命名段)')}
@@ -3102,7 +3098,9 @@ function renderEmpBonusForReviewer(emp) {
       </div>
       ${isEmpty
         ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工未透過自填連結提交任何加分項目,或管理者尚未發出連結。</div>'
-        : `
+        : (lines.length === 0
+          ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工已提交,但所有項目都確認無可加分。</div>'
+          : `
           <div style="font-size:11px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.04em;margin-bottom:8px;line-height:1.5;">
             ${status === 'reviewed'
               ? '※ 以下為員工自填且管理者審核後的項目,僅供評分參考,不顯示預計加分。'
@@ -3111,7 +3109,7 @@ function renderEmpBonusForReviewer(emp) {
                 : '⚠ 員工<b>尚未提交</b>,以下為草稿內容,仍可能異動。僅供評分參考,不顯示預計加分。'}
           </div>
           ${lines.join('')}
-        `}
+        `)}
     </div>
   `;
 }
@@ -3698,15 +3696,7 @@ function renderEmpBonusForAdmin(emp) {
       const noneFlag = !!data.itemNoneFlags?.[item.id];
       const detailArr = migrateListedDetails(item, sub, data);
       if (noneFlag && detailArr.length === 0) {
-        empLines.push(`
-          <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
-            <div style="font-size:13px;color:var(--ink);">
-              <b>${escapeHtml(item.name)}</b>
-              <span style="color:var(--ink-soft);margin-left:6px;">— 員工已確認本項無可加分</span>
-              <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px;">不加分</span>
-            </div>
-          </div>
-        `);
+        // 員工已確認本項無可加分 → 為求畫面簡潔直接隱藏(下游有 empty state 處理整體空白)
         return;
       }
       if (detailArr.length === 0) return;
@@ -3796,7 +3786,12 @@ function renderEmpBonusForAdmin(emp) {
         const days = calcTravelDays(d.startDate, d.endDate);
         const eligible = days > 0 && isTravelEligible(d.startDate, d.endDate, emp.bandSinceYYYYMM, cp);
         const tagColor = eligible ? 'var(--green)' : 'var(--gold)';
-        const tagText = eligible ? `✓ 計入(${days} 天)` : (days > 0 ? `ⓘ 不計入(${days} 天)` : '⚠ 日期不全');
+        let tagText;
+        if (eligible) tagText = `✓ 計入(${days} 天)`;
+        else if (days > 0) {
+          const reason = travelIneligibleReason(d.startDate, d.endDate, emp.bandSinceYYYYMM, cp) || '不計入';
+          tagText = `ⓘ ${reason}(${days} 天)`;
+        } else tagText = '⚠ 日期不全';
         const dateStr = (d.startDate && d.endDate) ? `${d.startDate} → ${d.endDate}` : '日期未填齊';
         return `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">
           • ${escapeHtml(d.name || '(未命名段)')}
@@ -3903,7 +3898,9 @@ function renderEmpBonusForAdmin(emp) {
       </div>
       ${isEmpty
         ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工未透過自填連結提交任何加分項目;若管理者另外代填,實際採用值會顯示於右上。</div>'
-        : empLines.join('')}
+        : (empLines.length === 0
+            ? '<div style="font-size:11px;color:var(--ink-muted);font-style:italic;">員工已提交,但所有項目都確認無可加分。</div>'
+            : empLines.join(''))}
     </div>
   `;
 }
@@ -4305,7 +4302,10 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
         const eligible = isTravelEligible(d.startDate, d.endDate, emp.bandSinceYYYYMM, state.covidPeriod || {});
         let tag = '';
         if (eligible) tag = `<span style="color:var(--green);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:6px;">✓ 計入(${days} 天)</span>`;
-        else tag = `<span style="color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:6px;">⚠ 不計入(${days} 天)</span>`;
+        else {
+          const reason = travelIneligibleReason(d.startDate, d.endDate, emp.bandSinceYYYYMM, state.covidPeriod || {}) || '不計入';
+          tag = `<span style="color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:6px;">⚠ ${escapeHtml(reason)}(${days} 天)</span>`;
+        }
         travelExtra = tag;
       }
       return `
@@ -5387,14 +5387,7 @@ function updateTravelSummary() {
     if (eligible) {
       tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-in">✓ 符合條件 · ${days} 天</span>`;
     } else {
-      const sYM = ymdToYearMonth(startDate);
-      let reason = '不符計分條件';
-      if (isFutureDate(startDate) || isFutureDate(endDate)) reason = '未來日期不可填';
-      else if (!bandSince) reason = '請先填寫上方「當前 Band 起始年月」';
-      else if (!cp.startYYYYMM || !cp.endYYYYMM) reason = '管理員未設定疫情期間';
-      else if (compareYearMonth(sYM, bandSince) < 0) reason = '出發日早於 Band 起始';
-      else if (compareYearMonth(sYM, cp.startYYYYMM) < 0) reason = '早於疫情期間';
-      else if (compareYearMonth(sYM, cp.endYYYYMM) > 0) reason = '晚於疫情期間';
+      const reason = travelIneligibleReason(startDate, endDate, bandSince, cp) || '不符計分條件';
       tagEl.innerHTML = `<span class="ipp-row-tag ipp-row-tag-warn">⚠ ${escapeHtml(reason)} · 不可提交(${days} 天)</span>`;
     }
   });
@@ -7604,6 +7597,22 @@ function isTravelEligible(startDate, endDate, bandSince, covidPeriod) {
   if (compareYearMonth(sYM, cp.startYYYYMM) < 0) return false;
   if (compareYearMonth(sYM, cp.endYYYYMM) > 0) return false;
   return true;
+}
+
+// 回傳一段 Travel 不計入的具體原因(給 UI 顯示用);若符合計入條件,回 null。
+// 判斷順序與 isTravelEligible 一致,但改回傳人類可讀的原因字串。
+function travelIneligibleReason(startDate, endDate, bandSince, covidPeriod) {
+  const cp = covidPeriod || {};
+  if (!startDate || !endDate) return '起訖日期不全';
+  if (calcTravelDays(startDate, endDate) <= 0) return '回台日須 ≥ 出發日';
+  if (isFutureDate(startDate) || isFutureDate(endDate)) return '未來日期不可填';
+  if (!bandSince) return '請先填寫「當前 Band 起始年月」';
+  if (!cp.startYYYYMM || !cp.endYYYYMM) return '管理員未設定疫情期間';
+  const sYM = ymdToYearMonth(startDate);
+  if (compareYearMonth(sYM, bandSince) < 0) return '非 Band 職期間內';
+  if (compareYearMonth(sYM, cp.startYYYYMM) < 0) return '早於疫情期間';
+  if (compareYearMonth(sYM, cp.endYYYYMM) > 0) return '晚於疫情期間';
+  return null;
 }
 
 // 從細項陣列推算 Travel 等級 → 對應到 EXTRA_CONTRIBUTION_ITEMS 裡 travel 的 option id
