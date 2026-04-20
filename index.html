@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-19.25';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-20.26';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -4092,8 +4092,8 @@ function renderEmpSubmissionRow(emp, status) {
       const detailArr = normalizeDetail(sub.data?.itemDetails?.[item.id]);
       if (detailArr.length === 0) return;
       const sum = summarizeListedItem(item, detailArr, { preview: true, bandSince });
-      if (sum.previewScore > 0) {
-        appliedTotal += sum.previewScore;
+      if (sum.totalScore > 0) {
+        appliedTotal += sum.totalScore;
       }
       // 有填就算一項,不論分數(reviewerScoring 項目例如其他證照,員工填了但分數由主管決定,preview 可能是 0)
       if (detailArr.length > 0) itemCount++;
@@ -5109,7 +5109,8 @@ function attachHandlers() {
 }
 
 // 即時重算員工頁頂部「申請總分」(包含 listing-mode 預估、IPP 自動算、cert 多選等)
-function updateAppliedTotal() {  const totalEl = document.querySelector('[data-applied-total]');
+function updateAppliedTotal() {
+  const totalEl = document.querySelector('[data-applied-total]');
   if (!totalEl) return;
   const empId = view.payload?.empId;
   if (!empId) return;
@@ -5646,6 +5647,8 @@ async function handleAction(e) {
       // focus 新輸入框方便立即打字
       const inp = newRow.querySelector('input[type="text"]');
       if (inp) inp.focus();
+      // 對稱於 detail-row-remove:新增後也觸發總分重算(即使新列是空的,保持邏輯一致)
+      updateAppliedTotal();
       break;
     }
     case 'detail-row-remove': {
@@ -7542,6 +7545,7 @@ function summarizeListedItem(item, detailArr, options = {}) {
   return {
     totalScore,
     acceptedScore, acceptedCount,
+    previewScore,
     pendingScore: previewScore - acceptedScore, pendingCount,
     rejectedCount,
     ineligibleCount,
