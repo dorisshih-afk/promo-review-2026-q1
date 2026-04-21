@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-21.32';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-21.33';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -3751,6 +3751,10 @@ function renderEmpBonusForAdmin(emp) {
             travelEligTag = `<span style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em;margin-left:6px;">ⓘ ${escapeHtml(reason)}</span>`;
           }
         }
+        // 拒絕理由(僅 admin/主管可見,員工看不到)
+        const reasonHtml = (dec === 'rejected' && d.reviewReason)
+          ? `<div style="font-size:11px;color:var(--accent);padding-left:26px;margin-top:2px;font-style:italic;">拒絕理由:${escapeHtml(d.reviewReason)}</div>`
+          : '';
         return `<div style="font-size:11px;color:var(--ink-soft);padding-left:14px;margin-top:2px;">
           • ${escapeHtml(d.name)}
           <span style="color:var(--ink-muted);font-family:'JetBrains Mono',monospace;">${
@@ -3765,7 +3769,7 @@ function renderEmpBonusForAdmin(emp) {
                 : escapeHtml(optLabel) + ' (+' + optScore + ')' + (d.occurredAt ? ' · ' + escapeHtml(d.occurredAt) : '')
           }</span>${travelEligTag}
           <span style="margin-left:6px;">${decBadge}</span>
-        </div>`;
+        </div>${reasonHtml}`;
       }).join('');
       empLines.push(`
         <div style="padding:10px 0;border-bottom:1px solid var(--line-soft);">
@@ -4363,6 +4367,7 @@ function renderReviewItemRow(emp, item, sub, isDraft = false) {
               ${ippExtra}${travelExtra}
             </div>
             <div style="font-size:11px;color:var(--ink-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">${escapeHtml(travelDateStr)} · ${decBadge}</div>
+            ${dec === 'rejected' && d.reviewReason ? `<div style="font-size:11px;color:var(--accent);margin-top:4px;font-style:italic;">拒絕理由:${escapeHtml(d.reviewReason)}</div>` : ''}
           </div>
           ${isDraft ? '' : `
             <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
@@ -5732,9 +5737,23 @@ async function handleAction(e) {
     case 'set-review':
       await handleSetReview(e.currentTarget.dataset.empid, e.currentTarget.dataset.itemid, e.currentTarget.dataset.decision);
       break;
-    case 'set-listed-review':
-      await handleSetListedReview(e.currentTarget.dataset.empid, e.currentTarget.dataset.itemid, parseInt(e.currentTarget.dataset.rowidx, 10), e.currentTarget.dataset.decision);
+    case 'set-listed-review': {
+      const empId = e.currentTarget.dataset.empid;
+      const itemId = e.currentTarget.dataset.itemid;
+      const rowIdx = parseInt(e.currentTarget.dataset.rowidx, 10);
+      const decision = e.currentTarget.dataset.decision;
+      if (decision === 'rejected') {
+        // 讀目前理由當預設值(主管再次點 ✗ 可改理由)
+        const sub = state.empSubmissions?.[empId];
+        const cur = sub?.data?.itemDetails?.[itemId]?.[rowIdx]?.reviewReason || '';
+        const reason = window.prompt('請填寫拒絕理由(員工看不到,只給主管/admin 參考):', cur);
+        if (reason === null) return;  // 按取消 → 不動作
+        await handleSetListedReview(empId, itemId, rowIdx, decision, reason);
+      } else {
+        await handleSetListedReview(empId, itemId, rowIdx, decision);
+      }
       break;
+    }
     case 'bulk-listed-review':
       await handleBulkListedReview(e.currentTarget.dataset.empid, e.currentTarget.dataset.itemid, e.currentTarget.dataset.decision);
       break;
@@ -6205,15 +6224,18 @@ async function collectAndSaveEmpForm(newStatus) {
   document.querySelectorAll('.form-items .detail-multi').forEach(container => {
     const isListing = container.dataset.listing === '1';
     const containerItemId = container.dataset.itemId || '';
-    // 為了在 collector 裡能保留每筆 reviewDecision,先讀現有 state 裡的細項以位置-或名稱-索引找回 reviewDecision
-    // 簡化策略:依 (name + occurredAt + level-or-weight) 作為 key 找回原 reviewDecision
+    // 為了在 collector 裡能保留每筆 reviewDecision + reviewReason,先讀現有 state 裡的細項以位置-或名稱-索引找回
+    // 簡化策略:依 (name + occurredAt + level-or-weight) 作為 key 找回原 reviewDecision / reviewReason
     const existingByKey = {};
     if (isListing) {
       const arr = normalizeDetail(sub.data.itemDetails?.[containerItemId]);
       arr.forEach(d => {
         const keyPart = d.level || (d.weight ? `w${d.weight}` : '');
         const k = `${d.name}|${d.occurredAt}|${keyPart}`;
-        if (d.reviewDecision) existingByKey[k] = d.reviewDecision;
+        if (d.reviewDecision) {
+          existingByKey[k] = { decision: d.reviewDecision };
+          if (typeof d.reviewReason === 'string') existingByKey[k].reason = d.reviewReason;
+        }
       });
     }
     // countListingMode 項目 ref(無 level 下拉)
@@ -6234,17 +6256,23 @@ async function collectAndSaveEmpForm(newStatus) {
       if (lvlsel && lvlsel.value) {
         obj.level = lvlsel.value;
         const k = `${obj.name}|${obj.occurredAt}|${obj.level}`;
-        obj.reviewDecision = existingByKey[k] || 'pending';
+        const prev = existingByKey[k];
+        obj.reviewDecision = prev?.decision || 'pending';
+        if (prev?.reason !== undefined) obj.reviewReason = prev.reason;
       } else if (isCountMode) {
         // 無 level 下拉 → 自動填 'listed'(item 只有一個 option)
         obj.level = 'listed';
         const k = `${obj.name}|${obj.occurredAt}|listed`;
-        obj.reviewDecision = existingByKey[k] || 'pending';
+        const prev = existingByKey[k];
+        obj.reviewDecision = prev?.decision || 'pending';
+        if (prev?.reason !== undefined) obj.reviewReason = prev.reason;
       } else if (isIppMode) {
         // IPP listingMode:無 level 但以 weight 作為 key 一部分
         const keyPart = obj.weight ? `w${obj.weight}` : '';
         const k = `${obj.name}|${obj.occurredAt}|${keyPart}`;
-        obj.reviewDecision = existingByKey[k] || 'pending';
+        const prev = existingByKey[k];
+        obj.reviewDecision = prev?.decision || 'pending';
+        if (prev?.reason !== undefined) obj.reviewReason = prev.reason;
       }
       rows.push(obj);
     });
@@ -6303,12 +6331,15 @@ async function collectAndSaveEmpForm(newStatus) {
   // Travel 收集:.travel-multi-row 三個欄位 → {name, startDate, endDate, reviewDecision?}[]
   // 然後依 covidPeriod + bandSince 自動算 items.travel
   {
-    // 先讀舊的 itemDetails.travel 做 by-key lookup,讓同一段的 reviewDecision 保留
+    // 先讀舊的 itemDetails.travel 做 by-key lookup,讓同一段的 reviewDecision + reviewReason 保留
     const prevTravel = normalizeTravelDetail(sub.data.itemDetails?.travel);
     const existingByKey = {};
     prevTravel.forEach(d => {
       const k = `${d.name}|${d.startDate}|${d.endDate}`;
-      existingByKey[k] = d.reviewDecision || 'pending';
+      existingByKey[k] = {
+        decision: d.reviewDecision || 'pending',
+        ...(typeof d.reviewReason === 'string' ? { reason: d.reviewReason } : {})
+      };
     });
     const travelRows = [];
     document.querySelectorAll('.travel-multi-row').forEach(row => {
@@ -6320,10 +6351,13 @@ async function collectAndSaveEmpForm(newStatus) {
       const endDate = eEl ? (eEl.value || '').trim() : '';
       if (!name && !startDate && !endDate) return;
       const k = `${name}|${startDate}|${endDate}`;
-      travelRows.push({
+      const prev = existingByKey[k];
+      const row2 = {
         name, startDate, endDate,
-        reviewDecision: existingByKey[k] || 'pending'
-      });
+        reviewDecision: prev?.decision || 'pending'
+      };
+      if (prev?.reason !== undefined) row2.reviewReason = prev.reason;
+      travelRows.push(row2);
     });
     if (travelRows.length > 0) {
       sub.data.itemDetails.travel = travelRows;
@@ -6476,7 +6510,8 @@ async function handleSetCertReview(empId, optId, decision) {
 }
 
 // Listing-mode 逐筆審核:把 sub.data.itemDetails[itemId][rowIdx].reviewDecision 設為 decision
-async function handleSetListedReview(empId, itemId, rowIdx, decision) {
+// 拒絕時同時存 reviewReason(主管填寫);接受時清掉 reviewReason
+async function handleSetListedReview(empId, itemId, rowIdx, decision, reason) {
   if (!state.empSubmissions || !state.empSubmissions[empId]) return;
   const sub = state.empSubmissions[empId];
   if (!sub.data) sub.data = { items: {}, itemDetails: {}, certDetails: {}, others: 0, othersNote: '' };
@@ -6486,6 +6521,13 @@ async function handleSetListedReview(empId, itemId, rowIdx, decision) {
   const arr = migrateListedDetails(item, sub, sub.data);
   if (rowIdx < 0 || rowIdx >= arr.length) return;
   arr[rowIdx].reviewDecision = decision;
+  if (decision === 'rejected') {
+    // reason 是字串(可為空),undefined 表示呼叫端沒帶(保持現狀)
+    if (typeof reason === 'string') arr[rowIdx].reviewReason = reason;
+  } else {
+    // 接受 / pending → 清掉理由
+    delete arr[rowIdx].reviewReason;
+  }
   sub.data.itemDetails[itemId] = arr;
   await saveState(state);
   render();
@@ -7094,6 +7136,10 @@ function normalizeTravelDetail(v) {
     if (x.reviewDecision === 'accepted' || x.reviewDecision === 'rejected' || x.reviewDecision === 'pending') {
       out.reviewDecision = x.reviewDecision;
     }
+    // 保留 reviewReason(主管拒絕時填的理由字串;只給主管/admin 看)
+    if (typeof x.reviewReason === 'string') {
+      out.reviewReason = x.reviewReason;
+    }
     return out;
   }).filter(Boolean);
 }
@@ -7122,6 +7168,10 @@ function normalizeDetail(v) {
       // 保留 reviewDecision(每筆獨立 'pending'/'accepted'/'rejected')
       if (x.reviewDecision === 'accepted' || x.reviewDecision === 'rejected' || x.reviewDecision === 'pending') {
         out.reviewDecision = x.reviewDecision;
+      }
+      // 保留 reviewReason(主管拒絕時填的理由字串;只給主管/admin 看)
+      if (typeof x.reviewReason === 'string') {
+        out.reviewReason = x.reviewReason;
       }
       // 保留 reviewerScore(主管填分項用,例如其他證照 — number 或可轉 number 字串)
       if (x.reviewerScore !== undefined && x.reviewerScore !== null && x.reviewerScore !== '') {
