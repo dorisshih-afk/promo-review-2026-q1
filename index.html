@@ -1460,6 +1460,7 @@ table.results .score-cell {
 <!-- Firebase SDK (compat version, 從 global window.firebase 使用) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 </head>
 <body>
 
@@ -1472,7 +1473,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-21.35';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-21.51';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -3430,6 +3431,9 @@ function renderStatsTab() {
         </button>
         <button class="mode-toggle ${techSplit ? 'on' : ''}" data-action="toggle-tech-split" title="將 BIOS+EC 與 Driver(SA) 分開排名,仍按 Band 分組">
           <span class="toggle-indicator">${techSplit ? '✓' : ''}</span>技術分組
+        </button>
+        <button class="mode-toggle" data-action="export-ranking-ppt" title="依目前排名模式產生 PPT:第一頁排名總覽,後面每位員工一頁明細(含各維度評分與通過審核的加分細項)" style="margin-left:12px;">
+          📥 匯出投影片
         </button>
       </div>
       <div class="mode-switcher-desc">
@@ -5829,6 +5833,9 @@ async function handleAction(e) {
       view.payload = { ...(view.payload || {}), techSplit: !view.payload?.techSplit };
       render();
       break;
+    case 'export-ranking-ppt':
+      await exportRankingPpt();
+      break;
     case 'toggle-bonus-emp':
       view.payload = { ...(view.payload || {}), expandedBonus: view.payload?.expandedBonus === id ? null : id };
       render();
@@ -7130,6 +7137,536 @@ function downloadCsv(rows, filename) {
   a.click();
   URL.revokeObjectURL(url);
   toast('CSV 已下載');
+}
+
+
+// =========================================================================
+// PPT 匯出:套用 LCFC 公司 template 視覺風格
+// 白底 · Arial · LCFC 紅 #DF1014 · 右下 LCFC logo · 紅色標題 bullet
+// 結構:每個 Band 分組 → 第一頁排名總覽 + 每位員工一頁明細
+// =========================================================================
+async function exportRankingPpt() {
+  if (typeof PptxGenJS === 'undefined') {
+    toast('PPT 產生器尚未載入,請稍後再試');
+    return;
+  }
+  const trimMode = !!view.payload?.trimMode;
+  const bonusMode = !!view.payload?.bonusMode;
+  const techSplit = !!view.payload?.techSplit;
+
+  let modeDesc;
+  if (!trimMode && !bonusMode) modeDesc = '原始平均';
+  else if (trimMode && !bonusMode) modeDesc = '去頭去尾';
+  else if (!trimMode && bonusMode) modeDesc = '原始 + 加分 (90/10)';
+  else modeDesc = '去頭去尾 + 加分 (90/10)';
+
+  // ==== LCFC Template 配色(取自公司官方 template)====
+  const LCFC = {
+    red: 'DF1014',          // LCFC 紅(警告/不合格用)
+    redDark: 'A50C0F',      // 深紅(hover 用)
+    text: '1F1F1F',         // 正文深灰
+    textMuted: '7A7A7A',    // 次要資訊灰
+    textFaint: 'B0B0B0',    // 頁尾灰
+    headerFill: 'F8F8F8',   // 表頭淡灰
+    rowAlt: 'FCFCFC',       // 交替列淡灰
+    border: 'D9D9D9',       // 邊框淡灰
+    green: '1F7A1F',        // 合格綠
+    blue: '1F4E9C',         // 中性藍(總分數字用,避免紅色 = 不合格的歧義)
+    accent: 'DF1014',       // 強調色 = LCFC 紅
+  };
+  const FONT = 'Arial';
+
+  // 按 band 分組
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand || '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => Number(a) - Number(b));
+
+  const buildRows = (emps) => emps.map(e => {
+    const raw = computeEmployeeAverage(e.id);
+    const trimmed = computeEmployeeAverageTrimmed(e.id);
+    const bonus = getEmployeeBonus(e.id).score || 0;
+    const row = {
+      emp: e,
+      rawAvg: raw.avg,
+      trimmedAvg: trimmed.avg,
+      bonus,
+      count: trimMode ? trimmed.count : raw.count,
+      trimmedAny: trimMode ? trimmed.trimmedAny : false,
+      eligibleMgrCount: eligibleManagers(e).length,
+    };
+    row.avg = computeScoreByMode(row, trimMode, bonusMode);
+    return row;
+  }).sort((a, b) => {
+    if (a.avg === null && b.avg === null) return 0;
+    if (a.avg === null) return 1;
+    if (b.avg === null) return -1;
+    return b.avg - a.avg;
+  });
+
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE';  // 13.33 x 7.5 inches
+  pptx.title = '升遷評核結果';
+  pptx.author = 'LCFC Promotion Review';
+
+  // LCFC 官方 logo(從公司 template 擷取,base64 內嵌,保證字型/比例/顏色絕對正確)
+  const LCFC_LOGO_DATA_URI = 'data:image/png;base64,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';
+
+  // 頂部細紅線 + 右下 LCFC logo + 頁尾灰字(每頁共用)
+  const addLcfcChrome = (slide, footerText) => {
+    // 頂部細紅線(模擬 template 邊緣)
+    slide.addShape('rect', {
+      x: 0, y: 0, w: 13.33, h: 0.06,
+      fill: { color: LCFC.red }, line: { type: 'none' },
+    });
+    // 右下角 LCFC 官方 logo 圖片(比例 3.053:1,尺寸對齊 template)
+    slide.addImage({
+      data: LCFC_LOGO_DATA_URI,
+      x: 12.18, y: 7.0, w: 1.05, h: 0.35,
+    });
+    // 頁尾資訊分級文字(template 慣例)— 對齊 logo 左邊界,留空隔開
+    slide.addText(footerText || 'LCFC Internal. All rights reserved.', {
+      x: 0.4, y: 7.1, w: 11.5, h: 0.28,
+      fontSize: 9, color: LCFC.textFaint, italic: true,
+      fontFace: FONT,
+    });
+  };
+
+  // 紅色圓點標題(模擬 template 的「紅色 bullet + 標題」)
+  const addRedBulletTitle = (slide, titleText, subtitle) => {
+    // 紅色小圓點
+    slide.addShape('ellipse', {
+      x: 0.5, y: 0.42, w: 0.14, h: 0.14,
+      fill: { color: LCFC.red }, line: { type: 'none' },
+    });
+    slide.addText(titleText, {
+      x: 0.75, y: 0.3, w: 11.5, h: 0.5,
+      fontSize: 24, bold: true, color: LCFC.text,
+      fontFace: FONT,
+    });
+    if (subtitle) {
+      slide.addText(subtitle, {
+        x: 0.75, y: 0.78, w: 11.5, h: 0.3,
+        fontSize: 12, color: LCFC.textMuted,
+        fontFace: FONT,
+      });
+    }
+  };
+
+  const dimNames = state.dimensions.map(d => d.name);
+  const maxScore = state.dimensions.length * 5;
+  const dateStr = new Date().toLocaleDateString('zh-TW');
+
+  // ====== 第一頁:封面 ======
+  {
+    const cover = pptx.addSlide();
+    cover.background = { color: 'FFFFFF' };
+    addLcfcChrome(cover);
+
+    // 左上:Promotion Review 標題(模擬 template slide 1 的風格)
+    cover.addText('2026 SS team', {
+      x: 0.6, y: 2.2, w: 12, h: 0.7,
+      fontSize: 36, color: LCFC.text,
+      fontFace: FONT,
+    });
+    cover.addText('Promotion Review Result', {
+      x: 0.6, y: 2.85, w: 12, h: 0.9,
+      fontSize: 44, bold: true, color: LCFC.text,
+      fontFace: FONT,
+    });
+
+    // 紅線分隔(template speaker 行的設計)
+    cover.addShape('rect', {
+      x: 0.6, y: 4.2, w: 1.2, h: 0.04,
+      fill: { color: LCFC.red }, line: { type: 'none' },
+    });
+    cover.addText(`排名模式:${modeDesc}`, {
+      x: 0.6, y: 4.35, w: 8, h: 0.35,
+      fontSize: 14, color: LCFC.text, bold: true,
+      fontFace: FONT,
+    });
+    cover.addText(dateStr, {
+      x: 0.6, y: 4.75, w: 8, h: 0.3,
+      fontSize: 12, color: LCFC.textMuted,
+      fontFace: FONT,
+    });
+  }
+
+  // ====== 每個 Band:總覽 + 每人明細(若開啟技術分組,則 band 內再依組拆)======
+  sortedBands.forEach(band => {
+    const targetBand = band !== '未設定' ? (Number(band) + 1) : '?';
+    const empsAllInBand = bandGroups[band];
+
+    // 構造 sections:techSplit 開時依 tech group 拆;否則整個 band 一組
+    let sections;
+    if (techSplit) {
+      const buckets = { bios_ec: [], driver: [], other: [] };
+      empsAllInBand.forEach(e => { buckets[getEmployeeTechGroup(e)].push(e); });
+      sections = ['bios_ec', 'driver', 'other']
+        .filter(k => buckets[k].length > 0)
+        .map(k => ({ key: k, label: TECH_GROUP_LABELS[k], emps: buckets[k] }));
+    } else {
+      sections = [{ key: 'all', label: '', emps: empsAllInBand }];
+    }
+
+    sections.forEach(sec => {
+      const emps = sec.emps;
+      const rows = buildRows(emps);
+      // section 標題:有技術分組時帶上組名,例如 "Band 5 → 6 · BIOS + EC"
+      const sectionTitle = techSplit
+        ? `Band ${band} → ${targetBand} · ${sec.label}`
+        : `Band ${band} → ${targetBand}`;
+
+    // ---- Band Section Divider ----
+    {
+      const div = pptx.addSlide();
+      div.background = { color: 'FFFFFF' };
+      addLcfcChrome(div);
+      div.addShape('rect', {
+        x: 0, y: 3.2, w: 13.33, h: 1.1,
+        fill: { color: LCFC.red }, line: { type: 'none' },
+      });
+      div.addText(sectionTitle, {
+        x: 0.6, y: 3.3, w: 12, h: 0.9,
+        fontSize: 40, bold: true, color: 'FFFFFF',
+        fontFace: FONT, valign: 'middle',
+      });
+      div.addText(bonusMode
+        ? `共 ${rows.length} 位候選人 · 平均總分 90% + 加分 10%`
+        : `共 ${rows.length} 位候選人 · 滿分 ${maxScore.toFixed(1)}`, {
+        x: 0.6, y: 4.45, w: 12, h: 0.35,
+        fontSize: 14, color: LCFC.text,
+        fontFace: FONT,
+      });
+    }
+
+    // ---- 總覽排名表 ----
+    {
+      const s1 = pptx.addSlide();
+      s1.background = { color: 'FFFFFF' };
+      addLcfcChrome(s1);
+      addRedBulletTitle(s1,
+        `${sectionTitle} 排名總覽`,
+        `排名模式:${modeDesc}  ·  ${rows.length} 位候選人`);
+
+      const header = [
+        { text: '#', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 12, fontFace: FONT } },
+        { text: '姓名', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, fontSize: 12, fontFace: FONT } },
+        { text: '部門', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, fontSize: 11, fontFace: FONT } },
+        { text: bonusMode ? '加分後總分' : '平均總分', options: { bold: true, color: LCFC.blue, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 12, fontFace: FONT } },
+        { text: '單項平均', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 12, fontFace: FONT } },
+        { text: '加分', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 12, fontFace: FONT } },
+        { text: 'IPP 數', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+        { text: '評分人數', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+        { text: '資格', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 12, fontFace: FONT } },
+      ];
+
+      const tableRows = [header];
+      rows.forEach((r, idx) => {
+        const judgeBase = computeJudgeBase(r, trimMode);
+        const dimAvg = judgeBase !== null && state.dimensions.length > 0
+          ? judgeBase / state.dimensions.length : null;
+        const qualified = dimAvg !== null && dimAvg >= 4;
+        const unscored = dimAvg === null;
+        const qualTag = unscored ? '—' : (qualified ? '✓' : '✗');
+        const qualColor = unscored ? LCFC.textMuted : (qualified ? LCFC.green : LCFC.red);
+        const rowFill = idx % 2 === 0 ? 'FFFFFF' : LCFC.rowAlt;
+
+        // IPP 數:只算審核同意的(reviewDecision === 'accepted')
+        const ippSub = getEmployeeSubmission(r.emp.id);
+        const ippDetails = normalizeDetail(ippSub.data?.itemDetails?.ipp);
+        const ippAcceptedCount = ippDetails.filter(d => d.reviewDecision === 'accepted').length;
+        // 是否「整份已審核完成」— 跟 admin 後台同一邏輯,決定要顯示 0 還是 —
+        const isReviewedSub = ippSub.status === 'reviewed';
+
+        // 加分文字:有加分→紅色 +X;無加分但已審完→灰色 +0;尚未審完→ —
+        const bonusText = r.bonus > 0 ? `+${r.bonus}` : (isReviewedSub ? '+0' : '—');
+        const bonusColor = r.bonus > 0 ? LCFC.red : LCFC.textMuted;
+        // IPP 文字:>0 顯示數字+綠色粗體(升遷標準之一);=0 但已審完→灰色 0;尚未審完→ —
+        const ippText = ippAcceptedCount > 0 ? String(ippAcceptedCount) : (isReviewedSub ? '0' : '—');
+        const ippColor = ippAcceptedCount > 0 ? LCFC.green : LCFC.textMuted;
+
+        tableRows.push([
+          { text: String(idx + 1), options: { color: LCFC.textMuted, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+          { text: r.emp.name, options: { color: LCFC.text, fill: { color: rowFill }, bold: true, fontSize: 12, fontFace: FONT } },
+          { text: displayDept(r.emp.dept), options: { color: LCFC.textMuted, fill: { color: rowFill }, fontSize: 10, fontFace: FONT } },
+          { text: r.avg === null ? '—' : r.avg.toFixed(2), options: { color: LCFC.blue, fill: { color: rowFill }, align: 'center', bold: true, fontSize: 13, fontFace: FONT } },
+          { text: dimAvg === null ? '—' : dimAvg.toFixed(2), options: { color: LCFC.text, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+          { text: bonusText, options: { color: bonusColor, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+          { text: ippText, options: { color: ippColor, fill: { color: rowFill }, align: 'center', bold: ippAcceptedCount > 0, fontSize: 12, fontFace: FONT } },
+          { text: `${r.count} / ${r.eligibleMgrCount}`, options: { color: LCFC.textMuted, fill: { color: rowFill }, align: 'center', fontSize: 10, fontFace: FONT } },
+          { text: qualTag, options: { color: qualColor, fill: { color: rowFill }, align: 'center', bold: true, fontSize: 13, fontFace: FONT } },
+        ]);
+      });
+
+      s1.addTable(tableRows, {
+        x: 0.5, y: 1.4, w: 12.3,
+        colW: [0.5, 1.3, 2.7, 1.6, 1.2, 1.0, 1.0, 1.2, 1.8],
+        rowH: 0.36,
+        border: { type: 'solid', color: LCFC.border, pt: 0.5 },
+        fontFace: FONT,
+      });
+    }
+
+    // ---- 每人明細 ----
+    rows.forEach((r, idx) => {
+      const s = pptx.addSlide();
+      s.background = { color: 'FFFFFF' };
+      addLcfcChrome(s, `LCFC Internal · ${sectionTitle} · ${idx + 1} / ${rows.length}`);
+      const emp = r.emp;
+
+      addRedBulletTitle(s,
+        `#${idx + 1}  ${emp.name}`,
+        `${emp.enName || ''} · ${displayDept(emp.dept)} · ${sectionTitle}`);
+
+      // 計算資格判定(在這裡先算,卡片下半要顯示)
+      const judgeBase = computeJudgeBase(r, trimMode);
+      const dimAvg = judgeBase !== null && state.dimensions.length > 0 ? judgeBase / state.dimensions.length : null;
+      const qualified = dimAvg !== null && dimAvg >= 4;
+      const unscored = dimAvg === null;
+
+      // 右上角總分區塊(白底 + 紅數字 + 評分人數 + 單項平均 + 合格 badge)— 緊湊版,往上靠
+      s.addShape('rect', {
+        x: 9.5, y: 0.15, w: 3.3, h: 1.80,
+        fill: { color: LCFC.headerFill }, line: { color: LCFC.border, width: 0.75 },
+      });
+      s.addText(bonusMode ? '加分後總分' : '平均總分', {
+        x: 9.5, y: 0.18, w: 3.3, h: 0.25,
+        fontSize: 10, color: LCFC.textMuted, align: 'center',
+        fontFace: FONT,
+      });
+      s.addText(r.avg === null ? '—' : r.avg.toFixed(2), {
+        x: 9.5, y: 0.40, w: 3.3, h: 0.55,
+        fontSize: 28, bold: true, color: LCFC.blue, align: 'center',
+        fontFace: FONT,
+      });
+      s.addText(bonusMode ? '平均總分 90% + 加分 10%' : `滿分 ${maxScore.toFixed(1)}`, {
+        x: 9.5, y: 0.95, w: 3.3, h: 0.18,
+        fontSize: 9, color: LCFC.textMuted, align: 'center',
+        fontFace: FONT,
+      });
+      // 分隔線
+      s.addShape('rect', {
+        x: 9.7, y: 1.17, w: 2.9, h: 0.01,
+        fill: { color: LCFC.border }, line: { type: 'none' },
+      });
+      // 評分人數 + 單項平均
+      s.addText(`評分人數  ${r.count} / ${r.eligibleMgrCount}`, {
+        x: 9.5, y: 1.20, w: 3.3, h: 0.20,
+        fontSize: 10, color: LCFC.text, align: 'center',
+        fontFace: FONT,
+      });
+      s.addText(`單項平均  ${dimAvg === null ? '—' : dimAvg.toFixed(2)}`, {
+        x: 9.5, y: 1.40, w: 3.3, h: 0.20,
+        fontSize: 10, color: LCFC.text, align: 'center',
+        fontFace: FONT,
+      });
+      // 合格 badge — 卡片內最下方(綠/紅長方形,白字)
+      if (!unscored) {
+        s.addShape('rect', {
+          x: 9.7, y: 1.62, w: 2.9, h: 0.30,
+          fill: { color: qualified ? LCFC.green : LCFC.red },
+          line: { type: 'none' },
+        });
+        s.addText(qualified ? '✓ 符合升遷資格' : '✗ 不符資格', {
+          x: 9.7, y: 1.62, w: 2.9, h: 0.30,
+          fontSize: 11, bold: true, color: 'FFFFFF',
+          align: 'center', valign: 'middle',
+          fontFace: FONT,
+        });
+      }
+
+      // ====== 上半:各維度評分(全寬,讓主管欄有充裕空間)======
+      s.addShape('ellipse', {
+        x: 0.5, y: 1.75, w: 0.1, h: 0.1,
+        fill: { color: LCFC.red }, line: { type: 'none' },
+      });
+      s.addText('各維度評分', {
+        x: 0.68, y: 1.65, w: 12, h: 0.32,
+        fontSize: 14, bold: true, color: LCFC.text,
+        fontFace: FONT,
+      });
+
+      const eligibleMgrs = eligibleManagers(emp);
+      const dimStatsForEmp = computeDimensionStats(emp.id);
+
+      // 把評過分的主管放前面,未評者擺後面
+      const mgrsSorted = eligibleMgrs.slice().sort((a, b) => {
+        const ta = computeManagerTotal(emp.id, a.id);
+        const tb = computeManagerTotal(emp.id, b.id);
+        if (ta !== null && tb === null) return -1;
+        if (ta === null && tb !== null) return 1;
+        return 0;
+      });
+
+      // 表頭:維度 + 每位主管 + 平均
+      const dimHeaderRow = [
+        { text: '維度', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, fontSize: 11, fontFace: FONT } },
+      ];
+      mgrsSorted.forEach(m => {
+        dimHeaderRow.push({
+          text: m.name,
+          options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 10, fontFace: FONT }
+        });
+      });
+      dimHeaderRow.push({
+        text: '平均',
+        options: { bold: true, color: LCFC.red, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT }
+      });
+
+      const dimRows = [dimHeaderRow];
+      state.dimensions.forEach((d, i) => {
+        const rowFill = i % 2 === 0 ? 'FFFFFF' : LCFC.rowAlt;
+        const cells = [
+          { text: d.name, options: { color: LCFC.text, fill: { color: rowFill }, fontSize: 10, fontFace: FONT } },
+        ];
+        const st = dimStatsForEmp[d.id] || {};
+        const excludedSet = new Set(st.excludedMgrs || []);
+        mgrsSorted.forEach(m => {
+          const s_ = getManagerScoreForEmployee(emp.id, m.id);
+          const v = s_[d.id];
+          const hasVal = typeof v === 'number';
+          const excluded = trimMode && excludedSet.has(m.id);
+          cells.push({
+            text: hasVal ? v.toFixed(1) : '—',
+            options: {
+              color: !hasVal ? LCFC.textFaint : (excluded ? LCFC.textMuted : (v < 4 ? LCFC.red : LCFC.text)),
+              fill: { color: rowFill },
+              align: 'center',
+              fontSize: 11,
+              bold: hasVal && !excluded,
+              italic: excluded,
+              fontFace: FONT,
+            }
+          });
+        });
+        const shown = trimMode ? st.trimmedAvg : st.rawAvg;
+        const avgColor = (shown === null || shown === undefined) ? LCFC.textFaint : (shown < 4 ? LCFC.red : LCFC.text);
+        cells.push({
+          text: (shown === null || shown === undefined) ? '—' : shown.toFixed(2),
+          options: { color: avgColor, fill: { color: rowFill }, align: 'center', bold: true, fontSize: 11, fontFace: FONT }
+        });
+        dimRows.push(cells);
+      });
+
+      // 全寬表格:12.3" 寬,主管欄至少 0.7" 確保 "Wilbur" 不斷行
+      const dimTableW = 12.3;
+      const nameColW = 2.6;
+      const avgColW = 0.9;
+      const mgrColTotal = dimTableW - nameColW - avgColW;
+      const perMgrW = mgrsSorted.length > 0 ? mgrColTotal / mgrsSorted.length : 0;
+      const dimColW = [nameColW, ...mgrsSorted.map(() => perMgrW), avgColW];
+
+      s.addTable(dimRows, {
+        x: 0.5, y: 2.05, w: dimTableW,
+        colW: dimColW,
+        rowH: 0.27,
+        border: { type: 'solid', color: LCFC.border, pt: 0.5 },
+        fontFace: FONT,
+      });
+
+      // 維度表底部 y(動態算):header(0.27) + 9 個維度(9 * 0.27) = 2.7,加 startY 2.05 → 約 4.75
+      const dimTableBottomY = 2.05 + (state.dimensions.length + 1) * 0.27;
+
+      // ====== 下半:通過審核的加分項(全寬,每筆獨立一列,detail 也逐筆斷行)======
+      const bonusStartY = dimTableBottomY + 0.3;  // 與上方表格留白
+
+      s.addShape('ellipse', {
+        x: 0.5, y: bonusStartY + 0.1, w: 0.1, h: 0.1,
+        fill: { color: LCFC.red }, line: { type: 'none' },
+      });
+      const bonusData = getEmployeeBonus(emp.id);
+      // 標題行:「通過審核的加分項   +X」(總分接在標題旁邊)
+      const titleParts = [
+        { text: '通過審核的加分項', options: { fontSize: 14, bold: true, color: LCFC.text, fontFace: FONT } },
+      ];
+      if (bonusData.score > 0) {
+        titleParts.push({ text: '   +' + bonusData.score, options: { fontSize: 16, bold: true, color: LCFC.red, fontFace: FONT } });
+      }
+      s.addText(titleParts, {
+        x: 0.68, y: bonusStartY, w: 12, h: 0.32,
+        fontFace: FONT,
+      });
+      // 把 breakdown 攤平:同一筆若 detail 含逗號,拆成多筆 sub-detail
+      const flatRows = [];
+      if (bonusData.breakdown) {
+        bonusData.breakdown.forEach(b => {
+          const subDetails = (b.detail || '').split(/,\s*/).filter(s => s.trim());
+          if (subDetails.length === 0) {
+            flatRows.push({ itemName: b.itemName, label: b.label, score: b.score, sub: '' });
+          } else if (subDetails.length === 1) {
+            flatRows.push({ itemName: b.itemName, label: b.label, score: b.score, sub: subDetails[0] });
+          } else {
+            // 多筆:第一行帶 itemName + label + score,後面行只放 sub-detail
+            subDetails.forEach((s, i) => {
+              flatRows.push({
+                itemName: i === 0 ? b.itemName : '',
+                label: i === 0 ? b.label : '',
+                score: i === 0 ? b.score : null,
+                sub: s.trim(),
+              });
+            });
+          }
+        });
+      }
+
+      const bonusListY = bonusStartY + 0.42;
+      // 加分區可用範圍:從 bonusListY 到 6.95(留 0.1 給底部 badge 列)
+      const bonusAreaH = 6.95 - bonusListY;
+
+      if (flatRows.length === 0) {
+        s.addText('(無通過審核的加分項)', {
+          x: 0.5, y: bonusListY, w: 12.3, h: 0.4,
+          color: LCFC.textMuted, fontSize: 11, italic: true, fontFace: FONT,
+        });
+      } else {
+        // 強制塞進一頁:依筆數動態計算行高、字級
+        const totalRows = flatRows.length;
+        // 行高:可用區 / 行數,但有上下限
+        const rowH = Math.max(0.18, Math.min(0.36, bonusAreaH / totalRows));
+        // 字級依行高跟著縮(行高 0.36 → fontSize 10/9;0.18 → 8/7)
+        const baseFs = rowH >= 0.32 ? 10 : (rowH >= 0.26 ? 9 : (rowH >= 0.22 ? 8 : 7));
+        const subFs = baseFs - 1;
+
+        const bRows = flatRows.map((r2, i) => {
+          const rowFill = i % 2 === 0 ? 'FFFFFF' : LCFC.rowAlt;
+          let nameCell;
+          if (r2.itemName) {
+            nameCell = {
+              text: [
+                { text: '• ' + r2.itemName, options: { bold: true, color: LCFC.text, fontSize: baseFs, fontFace: FONT } },
+                { text: '   ' + r2.label, options: { color: LCFC.textMuted, fontSize: subFs, fontFace: FONT } },
+              ],
+              options: { fill: { color: rowFill }, valign: 'middle' }
+            };
+          } else {
+            nameCell = { text: '', options: { fill: { color: rowFill } } };
+          }
+          return [
+            nameCell,
+            { text: r2.sub || '—', options: { color: LCFC.text, fill: { color: rowFill }, fontSize: subFs, italic: !!r2.sub, valign: 'middle', fontFace: FONT } },
+            { text: r2.score !== null ? `+${r2.score}` : '', options: { color: LCFC.red, fill: { color: rowFill }, fontSize: baseFs, bold: true, align: 'right', valign: 'middle', fontFace: FONT } },
+          ];
+        });
+
+        s.addTable(bRows, {
+          x: 0.5, y: bonusListY, w: 12.3,
+          colW: [4.5, 6.5, 1.3],
+          rowH: rowH,
+          border: { type: 'none' },
+          fontFace: FONT,
+        });
+      }
+    });
+    });  // close sections.forEach
+  });
+
+  const fileName = `升遷評核_${new Date().toISOString().slice(0,10)}.pptx`;
+  await pptx.writeFile({ fileName });
+  toast('投影片已匯出');
 }
 
 function escapeHtml(str) {
