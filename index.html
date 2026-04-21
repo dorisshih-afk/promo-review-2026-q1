@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-20.28';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-21.29';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -3466,9 +3466,9 @@ function renderStatsTab() {
                     <td class="num score-cell">${fmt(r.avg, 2)}${r.trimmedAny && trimMode ? '<span class="trim-tag">已排除</span>' : ''}${bonusMode && r.bonus > 0 ? '<span class="bonus-tag" title="加分項已縮為 10%(原 +' + r.bonus + ' → 實際貢獻 +' + (r.bonus * 0.1).toFixed(2) + ')">+' + r.bonus + '×10%</span>' : ''}</td>
                     <td class="num ${disqualified ? 'disqualified-num' : ''}">${fmt(dimAvgForJudge, 2)}</td>
                     <td class="num" title="${r.bonus > 0 ? `加分 +${r.bonus}` : (isReviewedSub ? '已審核,無加分' : '尚未審核')}" style="color:${r.bonus > 0 ? 'var(--gold)' : 'var(--ink-muted)'};font-weight:${r.bonus > 0 ? '600' : '400'};">${r.bonus > 0 ? '+' + r.bonus : (isReviewedSub ? '+0' : '—')}</td>
-                    <td class="num" title="${ippSum ? `期間內 ${ippSum.inCount} 筆 · 期間外 ${ippSum.outCount} 筆` : (isReviewedSub ? '已審核,無 IPP' : '尚未審核')}" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${(ippSum && ippSum.totalCount > 0) || isReviewedSub ? 'var(--ink)' : 'var(--ink-muted)'};">
+                    <td class="num" title="${ippSum ? `期間內 ${ippSum.inCount} 筆 · 期間外 ${ippSum.outCount} 筆` : (isReviewedSub ? '已審核,無 IPP' : '尚未審核')}" style="font-size:14px;font-weight:500;color:${(ippSum && ippSum.totalCount > 0) || isReviewedSub ? 'var(--ink)' : 'var(--ink-muted)'};">
                       ${ippSum && ippSum.totalCount > 0
-                        ? `<b>${ippSum.totalCount}</b><br><span style="color:var(--ink-muted);font-size:10px;font-weight:400;">${ippSum.inCount}內 / ${ippSum.outCount}外</span>`
+                        ? `<b>${ippSum.totalCount}</b><br><span style="color:var(--ink-muted);font-size:10px;font-weight:400;font-family:'JetBrains Mono',monospace;">${ippSum.inCount}內 / ${ippSum.outCount}外</span>`
                         : (isReviewedSub ? '<b>0</b>' : '—')}
                     </td>
                     <td class="num">${r.count} / ${r.eligibleMgrCount}</td>
