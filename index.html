@@ -1472,7 +1472,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-21.33';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-21.34';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -4242,9 +4242,27 @@ function renderReviewDetail(empId) {
   if (sub.reviewedItems?.others === 'accepted') previewBonus += Number(data.others) || 0;
 
   // 統計待審項目
+  // Bug fix: listing-mode 項目的審核走每筆 row 的 reviewDecision,
+  //          但 sub.reviewedItems[itemId] 會被提交時初始化為 'pending' 且永不更新。
+  //          所以算 pending 時要:
+  //          1) 跳過 listing-mode 項目的 sub.reviewedItems 那一筆(它永遠是 pending)
+  //          2) 改看 listing-mode 項目 itemDetails 裡還有幾筆 row-level pending
   let pendingCount = 0;
-  Object.values(sub.reviewedItems || {}).forEach(v => { if (v === 'pending') pendingCount++; });
+  const listingItemIds = new Set(EXTRA_CONTRIBUTION_ITEMS.filter(i => i.listingMode).map(i => i.id));
+  Object.entries(sub.reviewedItems || {}).forEach(([itemId, v]) => {
+    if (listingItemIds.has(itemId)) return;  // 略過 listing-mode(走 row-level)
+    if (v === 'pending') pendingCount++;
+  });
   Object.values(sub.reviewedCertItems || {}).forEach(v => { if (v === 'pending') pendingCount++; });
+  // listing-mode:逐筆檢查每個 row 的 reviewDecision
+  EXTRA_CONTRIBUTION_ITEMS.forEach(item => {
+    if (!item.listingMode) return;
+    const detailArr = migrateListedDetails(item, sub, sub.data || {});
+    detailArr.forEach(d => {
+      const dec = d.reviewDecision || 'pending';
+      if (dec === 'pending') pendingCount++;
+    });
+  });
 
   return `
     <div style="margin-bottom:18px;">
@@ -6582,8 +6600,15 @@ async function handleBulkReview(empId, type) {
 async function handleFinalizeReview(empId) {
   const sub = state.empSubmissions?.[empId];
   if (!sub) return;
+  // 計算 pending(跟顯示用的 pendingCount 邏輯一致):
+  // - 跳過 listing-mode 項目的 sub.reviewedItems(它會被初始化成 pending 且永不更新)
+  // - 改看 listing-mode itemDetails 裡的 row-level pending
   let pending = 0;
-  Object.values(sub.reviewedItems || {}).forEach(v => { if (v === 'pending') pending++; });
+  const listingItemIds = new Set(EXTRA_CONTRIBUTION_ITEMS.filter(i => i.listingMode).map(i => i.id));
+  Object.entries(sub.reviewedItems || {}).forEach(([itemId, v]) => {
+    if (listingItemIds.has(itemId)) return;
+    if (v === 'pending') pending++;
+  });
   Object.values(sub.reviewedCertItems || {}).forEach(v => { if (v === 'pending') pending++; });
   // listing-mode 待審 + reviewerScoring 「已接受但未填分」的列
   let unscoredAccepted = 0;
