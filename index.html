@@ -1473,7 +1473,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-21.51';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-21.57';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -2201,20 +2201,88 @@ function getManagerScoreForEmployee(empId, mgrId) {
   return (state.scores[empId] && state.scores[empId][mgrId]) || {};
 }
 
-function computeManagerTotal(empId, mgrId) {
-  const s = getManagerScoreForEmployee(empId, mgrId);
-  let sum = 0, count = 0;
-  state.dimensions.forEach(d => {
-    if (typeof s[d.id] === 'number') { sum += s[d.id]; count++; }
+// ─────────────────────── 評審校正(Rater Bias Correction) ───────────────────────
+// 每位評審可能習慣給高或給低,以及每位員工面對的評審組合又不同,
+// 這會造成「面對嚴格評審的員工吃虧」的系統性不公平。
+// 做法:mean centering,每個評審的分數減掉他自己的個人平均,再加上全體平均。
+//   校正後 = 原分 - 評審_μ + 全體_μ
+// 小樣本保護:若評審評過的「完整人數」< 3,視為樣本不足 → 不校正(個人 bias 估不準)
+let _raterBiasCache = null;
+let _raterBiasCacheKey = null;
+function getRaterBias() {
+  // 用 state.scores 的 JSON 當 cache key,改動就重算
+  const currentKey = JSON.stringify(state.scores || {});
+  if (_raterBiasCacheKey === currentKey && _raterBiasCache) return _raterBiasCache;
+
+  // 收集每位評審對每個「完整評過的員工」的每個維度分數
+  const mgrScores = {};   // { mgrId: [分數...] }
+  const allScores = [];   // 全體分數
+  const mgrCompleteCount = {}; // { mgrId: 完整評過幾位員工 }
+  Object.keys(state.scores || {}).forEach(empId => {
+    Object.keys(state.scores[empId] || {}).forEach(mgrId => {
+      const s = state.scores[empId][mgrId] || {};
+      // 只有「對該員工所有維度都評過」才算進個人平均(避免半途 bias)
+      const isComplete = state.dimensions.every(d => typeof s[d.id] === 'number');
+      if (!isComplete) return;
+      if (!mgrScores[mgrId]) mgrScores[mgrId] = [];
+      state.dimensions.forEach(d => {
+        mgrScores[mgrId].push(s[d.id]);
+        allScores.push(s[d.id]);
+      });
+      mgrCompleteCount[mgrId] = (mgrCompleteCount[mgrId] || 0) + 1;
+    });
   });
-  return count === state.dimensions.length ? sum : null;  // null if incomplete
+
+  const overallAvg = allScores.length > 0
+    ? allScores.reduce((a, b) => a + b, 0) / allScores.length
+    : 4.0;
+
+  const result = { overallAvg, mgrAvg: {}, mgrCompleteCount, eligibleForAdjust: {} };
+  Object.keys(mgrScores).forEach(mgrId => {
+    const arr = mgrScores[mgrId];
+    result.mgrAvg[mgrId] = arr.reduce((a, b) => a + b, 0) / arr.length;
+    // 小樣本保護:評過完整員工 ≥ 3 人才適合校正
+    result.eligibleForAdjust[mgrId] = (mgrCompleteCount[mgrId] || 0) >= 3;
+  });
+
+  _raterBiasCache = result;
+  _raterBiasCacheKey = currentKey;
+  return result;
 }
 
-function computeEmployeeAverage(empId) {
+// 取一位評審對某員工某維度的校正後分數
+//   - 若 raterAdjust === false → 回原始分數
+//   - 若該評審樣本不足(< 3 人)→ 回原始分數(不校正)
+//   - 否則 → 原分 - 評審μ + 全體μ,並 clip 到 [1, 5](避免越界)
+function getScoreAdjusted(empId, mgrId, dimId, raterAdjust) {
+  const s = getManagerScoreForEmployee(empId, mgrId);
+  const v = s[dimId];
+  if (typeof v !== 'number') return undefined;
+  if (!raterAdjust) return v;
+  const bias = getRaterBias();
+  if (!bias.eligibleForAdjust[mgrId]) return v;
+  const mgrMean = bias.mgrAvg[mgrId];
+  const overall = bias.overallAvg;
+  const adjusted = v - mgrMean + overall;
+  // clip 到合理範圍(分數原本 1~5)
+  return Math.max(1, Math.min(5, adjusted));
+}
+
+// 改寫版 computeManagerTotal,支援 raterAdjust
+function computeManagerTotal(empId, mgrId, raterAdjust) {
+  let sum = 0, count = 0;
+  state.dimensions.forEach(d => {
+    const v = getScoreAdjusted(empId, mgrId, d.id, raterAdjust);
+    if (typeof v === 'number') { sum += v; count++; }
+  });
+  return count === state.dimensions.length ? sum : null;
+}
+
+function computeEmployeeAverage(empId, raterAdjust) {
   const empScores = getEmployeeScores(empId);
   const totals = [];
   Object.keys(empScores).forEach(mgrId => {
-    const t = computeManagerTotal(empId, mgrId);
+    const t = computeManagerTotal(empId, mgrId, raterAdjust);
     if (t !== null) totals.push(t);
   });
   if (totals.length === 0) return { avg: null, count: 0 };
@@ -2224,10 +2292,10 @@ function computeEmployeeAverage(empId) {
 
 // 按「每個維度個別」排除最高最低分,然後加總所有維度的調整後平均
 // 啟動條件:該維度有效評分 ≥ 5 人(扣掉最高最低後仍有 3 人)
-function computeEmployeeAverageTrimmed(empId) {
+function computeEmployeeAverageTrimmed(empId, raterAdjust) {
   const empScores = getEmployeeScores(empId);
   const mgrIdsWithComplete = Object.keys(empScores).filter(mgrId => {
-    return computeManagerTotal(empId, mgrId) !== null;
+    return computeManagerTotal(empId, mgrId, raterAdjust) !== null;
   });
   if (mgrIdsWithComplete.length === 0) return { avg: null, count: 0, trimmedAny: false };
 
@@ -2235,7 +2303,7 @@ function computeEmployeeAverageTrimmed(empId) {
   let trimmedAny = false;
   state.dimensions.forEach(d => {
     const vals = mgrIdsWithComplete
-      .map(mgrId => empScores[mgrId][d.id])
+      .map(mgrId => getScoreAdjusted(empId, mgrId, d.id, raterAdjust))
       .filter(v => typeof v === 'number');
     let useVals = vals;
     if (vals.length >= 5) {
@@ -2250,34 +2318,39 @@ function computeEmployeeAverageTrimmed(empId) {
 }
 
 // 同上但回傳每維度的詳細資訊(供 detail 頁顯示)
-function computeDimensionStats(empId) {
+function computeDimensionStats(empId, raterAdjust) {
   const empScores = getEmployeeScores(empId);
   const mgrIdsWithComplete = Object.keys(empScores).filter(mgrId => {
-    return computeManagerTotal(empId, mgrId) !== null;
+    return computeManagerTotal(empId, mgrId, raterAdjust) !== null;
   });
   const stats = {};
   state.dimensions.forEach(d => {
     const vals = mgrIdsWithComplete
-      .map(mgrId => ({ mgrId, val: empScores[mgrId][d.id] }))
+      .map(mgrId => ({ mgrId, val: getScoreAdjusted(empId, mgrId, d.id, raterAdjust) }))
       .filter(x => typeof x.val === 'number');
     if (vals.length === 0) {
       stats[d.id] = { rawAvg: null, trimmedAvg: null, trimmed: false, excludedMgrs: [] };
       return;
     }
     const rawAvg = vals.reduce((a, x) => a + x.val, 0) / vals.length;
-    let trimmedAvg = rawAvg;
-    let trimmed = false;
-    let excludedMgrs = [];
     if (vals.length >= 5) {
       const sorted = [...vals].sort((a, b) => a.val - b.val);
       const lowest = sorted[0];
       const highest = sorted[sorted.length - 1];
-      excludedMgrs = [lowest.mgrId, highest.mgrId];
-      const remaining = sorted.slice(1, -1);
-      trimmedAvg = remaining.reduce((a, x) => a + x.val, 0) / remaining.length;
-      trimmed = true;
+      // 詳細記錄:哪位是最高、哪位是最低、分數各為何(供透明化展示用)
+      stats[d.id] = {
+        rawAvg,
+        trimmedAvg: sorted.slice(1, -1).reduce((a, x) => a + x.val, 0) / (sorted.length - 2),
+        trimmed: true,
+        excludedMgrs: [lowest.mgrId, highest.mgrId],
+        excludedDetail: {
+          lowest: { mgrId: lowest.mgrId, val: lowest.val },
+          highest: { mgrId: highest.mgrId, val: highest.val },
+        },
+      };
+      return;
     }
-    stats[d.id] = { rawAvg, trimmedAvg, trimmed, excludedMgrs };
+    stats[d.id] = { rawAvg, trimmedAvg: rawAvg, trimmed: false, excludedMgrs: [] };
   });
   return stats;
 }
@@ -3342,6 +3415,7 @@ function renderStatsTab() {
   const trimMode = !!view.payload?.trimMode;
   const bonusMode = !!view.payload?.bonusMode;
   const techSplit = !!view.payload?.techSplit;
+  const raterAdjust = !!view.payload?.raterAdjust;
 
   // 應評分數 = 每位員工 × 該員工的可評主管數
   let expectedReviews = 0;
@@ -3358,8 +3432,8 @@ function renderStatsTab() {
 
   // ranking
   const rows = state.employees.map(e => {
-    const raw = computeEmployeeAverage(e.id);
-    const trimmed = computeEmployeeAverageTrimmed(e.id);
+    const raw = computeEmployeeAverage(e.id, raterAdjust);
+    const trimmed = computeEmployeeAverageTrimmed(e.id, raterAdjust);
     const bonus = getEmployeeBonus(e.id).score || 0;
     const eligibleMgrCount = eligibleManagers(e).length;
     const row = {
@@ -3432,16 +3506,89 @@ function renderStatsTab() {
         <button class="mode-toggle ${techSplit ? 'on' : ''}" data-action="toggle-tech-split" title="將 BIOS+EC 與 Driver(SA) 分開排名,仍按 Band 分組">
           <span class="toggle-indicator">${techSplit ? '✓' : ''}</span>技術分組
         </button>
+        <button class="mode-toggle ${raterAdjust ? 'on' : ''}" data-action="toggle-rater-adjust" title="校正評審寬嚴差異(每位評審減去其個人平均、加回全體平均),降低「面對嚴格評審的員工吃虧」的不公平。評審評分數 < 3 人時不校正(樣本不足)">
+          <span class="toggle-indicator">${raterAdjust ? '✓' : ''}</span>評審校正
+        </button>
         <button class="mode-toggle" data-action="export-ranking-ppt" title="依目前排名模式產生 PPT:第一頁排名總覽,後面每位員工一頁明細(含各維度評分與通過審核的加分細項)" style="margin-left:12px;">
           📥 匯出投影片
         </button>
       </div>
       <div class="mode-switcher-desc">
-        ${(!trimMode && !bonusMode) ? '※ 原始平均:各主管的所有評分皆計入,未做任何排除、未含加分' : ''}
-        ${( trimMode && !bonusMode) ? '※ 去頭去尾:對每個維度,當該維度評分人數 ≥ 5 時,自動去除最高與最低分後再平均' : ''}
-        ${(!trimMode &&  bonusMode) ? '※ 原始 + 加分(90/10):排名分數 = 原始平均 × 0.9 + Extra Contribution × 0.1' : ''}
-        ${( trimMode &&  bonusMode) ? '※ 去頭去尾 + 加分(90/10):排名分數 = 去頭去尾平均 × 0.9 + Extra Contribution × 0.1' : ''}
+        ${(!trimMode && !bonusMode && !raterAdjust) ? '※ 原始平均:各主管的所有評分皆計入,未做任何排除、未含加分' : ''}
+        ${( trimMode && !bonusMode && !raterAdjust) ? '※ 去頭去尾:對每個維度,當該維度評分人數 ≥ 5 時,自動去除最高與最低分後再平均' : ''}
+        ${(!trimMode &&  bonusMode && !raterAdjust) ? '※ 原始 + 加分(90/10):排名分數 = 原始平均 × 0.9 + Extra Contribution × 0.1' : ''}
+        ${( trimMode &&  bonusMode && !raterAdjust) ? '※ 去頭去尾 + 加分(90/10):排名分數 = 去頭去尾平均 × 0.9 + Extra Contribution × 0.1' : ''}
+        ${raterAdjust ? '※ 評審校正:每位評審的每筆分數先減去其個人平均、再加回全體平均,以降低「主管寬嚴差異」造成的系統性偏誤(評審評分數 < 3 人時不校正);再依「去頭去尾 / 含加分」繼續聚合' : ''}
       </div>
+      ${raterAdjust ? (() => {
+        const bias = getRaterBias();
+        const overall = bias.overallAvg;
+        // 依「個人平均 - 全體平均」的絕對值排序(bias 越大越該被看到)
+        const entries = Object.keys(bias.mgrAvg).map(mgrId => {
+          const mgr = state.managers.find(m => m.id === mgrId);
+          const mgrAvg = bias.mgrAvg[mgrId];
+          const delta = mgrAvg - overall;
+          const n = bias.mgrCompleteCount[mgrId] || 0;
+          const eligible = !!bias.eligibleForAdjust[mgrId];
+          return { mgrId, name: mgr ? mgr.name : mgrId, mgrAvg, delta, n, eligible };
+        }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+        return `
+          <details style="margin-top:14px;background:#FAFAFA;border:1px solid var(--line);border-radius:8px;">
+            <summary style="padding:10px 14px;cursor:pointer;font-weight:600;color:var(--ink);user-select:none;">
+              🔍 校正明細(透明化:看看每位評審被校正了多少)
+            </summary>
+            <div style="padding:6px 14px 14px 14px;">
+              <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;line-height:1.7;">
+                全體評審的整體平均為 <b style="color:var(--ink);">${overall.toFixed(3)}</b>。<br>
+                校正公式:<code style="background:#F0F0F0;padding:2px 6px;border-radius:4px;">校正後分數 = 原始分數 - 評審個人平均 + 全體平均</code><br>
+                例:若評審 A 個人平均 ${(overall + 0.3).toFixed(2)}(偏寬 +0.3),他給某員工 4.5 分 → 校正後 = 4.5 - ${(overall + 0.3).toFixed(2)} + ${overall.toFixed(2)} = <b>${(4.5 - 0.3).toFixed(2)}</b>。<br>
+                <span style="color:var(--accent);">※ 評審評分人數 < 3 時樣本不足,該評審「不校正」(分數維持原始值)。</span>
+              </div>
+              <table style="width:100%;font-size:13px;border-collapse:collapse;">
+                <thead>
+                  <tr style="background:#F0F0F0;color:var(--ink);">
+                    <th style="text-align:left;padding:8px 10px;border:1px solid var(--line);">評審</th>
+                    <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">評完整員工數</th>
+                    <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">個人平均</th>
+                    <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">偏差量 Δ</th>
+                    <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">寬嚴傾向</th>
+                    <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">是否校正</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${entries.map(e => {
+                    const sign = e.delta >= 0 ? '+' : '';
+                    const tendency = !e.eligible
+                      ? '<span style="color:var(--ink-faint);">—</span>'
+                      : (Math.abs(e.delta) < 0.05
+                        ? '<span style="color:var(--ink-muted);">中立</span>'
+                        : (e.delta > 0
+                          ? `<span style="color:#B8860B;">偏寬 ↑</span>`
+                          : `<span style="color:#4A6FA5;">偏嚴 ↓</span>`));
+                    const eligibleCell = e.eligible
+                      ? '<span style="color:var(--ok);">✓ 校正</span>'
+                      : `<span style="color:var(--ink-faint);">✗ 樣本不足</span>`;
+                    return `
+                      <tr>
+                        <td style="padding:7px 10px;border:1px solid var(--line);font-weight:500;">${escapeHtml(e.name)}</td>
+                        <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);font-family:'JetBrains Mono',monospace;">${e.n}</td>
+                        <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);font-family:'JetBrains Mono',monospace;">${e.mgrAvg.toFixed(3)}</td>
+                        <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);font-family:'JetBrains Mono',monospace;color:${Math.abs(e.delta)>=0.1 ? 'var(--accent)' : 'var(--ink)'};font-weight:${Math.abs(e.delta)>=0.1 ? '600':'400'};">${sign}${e.delta.toFixed(3)}</td>
+                        <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);">${tendency}</td>
+                        <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);">${eligibleCell}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+              <div style="font-size:11px;color:var(--ink-faint);margin-top:10px;line-height:1.6;">
+                「偏差量 Δ」= 個人平均 − 全體平均。正值表示該評審習慣給高(偏寬),負值表示偏嚴。<br>
+                校正後,偏寬的評審給出的分數會被向下調整,偏嚴的評審給出的分數會被向上調整,讓每位員工面對的「實質標準」一致。
+              </div>
+            </div>
+          </details>
+        `;
+      })() : ''}
     </div>
 
     ${rows.length === 0 ? '<div class="empty">尚無員工資料</div>' : (() => {
@@ -3564,6 +3711,7 @@ function renderStatsTab() {
 
 function renderEmpDetail(emp) {
   const trimMode = view.payload?.trimMode || false;
+  const raterAdjust = !!view.payload?.raterAdjust;
   const hideUnscored = !!view.payload?.hideUnscored;
 
   const totalsByMgr = state.managers.map(m => {
@@ -3574,7 +3722,7 @@ function renderEmpDetail(emp) {
   });
 
   // 取得每維度的詳細統計(含排除資訊)
-  const dimStats = computeDimensionStats(emp.id);
+  const dimStats = computeDimensionStats(emp.id, raterAdjust);
 
   // 哪些主管在哪些維度被排除(依模式決定是否顯示排除)
   const isExcluded = (mgrId, dimId) => {
@@ -3658,8 +3806,16 @@ function renderEmpDetail(emp) {
               ${state.dimensions.map(d => {
                 const v = t.scores[d.id];
                 if (typeof v !== 'number') return `<td class="num">—</td>`;
+                // raterAdjust 開啟時:若該評審有被校正,顯示原始 → 校正後
+                const adjusted = raterAdjust ? getScoreAdjusted(emp.id, t.mgr.id, d.id, true) : v;
+                const wasAdjusted = raterAdjust && typeof adjusted === 'number' && Math.abs(adjusted - v) >= 0.01;
                 if (isExcluded(t.mgr.id, d.id)) {
-                  return `<td class="num" style="color:var(--ink-muted);text-decoration:line-through;background:rgba(176,141,58,0.08);" title="本維度最高/最低分,已排除">${fmt(v, 1)}</td>`;
+                  return `<td class="num" style="color:var(--ink-muted);text-decoration:line-through;background:rgba(176,141,58,0.08);" title="本維度最高/最低分,已排除">${fmt(wasAdjusted ? adjusted : v, 1)}</td>`;
+                }
+                if (wasAdjusted) {
+                  const delta = adjusted - v;
+                  const sign = delta >= 0 ? '+' : '';
+                  return `<td class="num" title="原始 ${v.toFixed(1)} → 校正後 ${adjusted.toFixed(2)} (${sign}${delta.toFixed(2)})" style="line-height:1.2;"><span style="font-weight:500;">${adjusted.toFixed(2)}</span><br><span style="font-size:10px;color:var(--ink-faint);text-decoration:line-through;">${v.toFixed(1)}</span></td>`;
                 }
                 return `<td class="num">${fmt(v, 1)}</td>`;
               }).join('')}
@@ -3689,6 +3845,70 @@ function renderEmpDetail(emp) {
         ` : ''}
       </tbody>
     </table>
+    ${trimMode ? (() => {
+      // 收集有啟動 trim 的維度明細
+      const trimmedEntries = state.dimensions
+        .map(d => ({ d, stat: dimStats[d.id] }))
+        .filter(x => x.stat && x.stat.trimmed && x.stat.excludedDetail);
+      if (trimmedEntries.length === 0) {
+        return `<div style="font-size:12px;color:var(--ink-faint);margin-top:10px;font-style:italic;">※ 此員工沒有任何維度啟動去頭去尾(每維度需 ≥ 5 人評分)</div>`;
+      }
+      const mgrName = (id) => {
+        const m = state.managers.find(mm => mm.id === id);
+        return m ? m.name : id;
+      };
+      return `
+        <details style="margin-top:14px;background:#FAFAFA;border:1px solid var(--line);border-radius:8px;">
+          <summary style="padding:10px 14px;cursor:pointer;font-weight:600;color:var(--ink);user-select:none;">
+            🔍 去頭去尾明細(透明化:每個維度哪位評審被排除)
+          </summary>
+          <div style="padding:6px 14px 14px 14px;">
+            <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;line-height:1.7;">
+              規則:每個維度若有效評分 ≥ 5 人,自動去除該維度的「最高分」與「最低分」後再平均。<br>
+              <span style="color:var(--accent);">※ 只排除該維度的最高最低,其他維度仍計入該評審的分數;不是整筆拿掉。</span>
+            </div>
+            <table style="width:100%;font-size:13px;border-collapse:collapse;">
+              <thead>
+                <tr style="background:#F0F0F0;color:var(--ink);">
+                  <th style="text-align:left;padding:8px 10px;border:1px solid var(--line);">維度</th>
+                  <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">排除最高分</th>
+                  <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">排除最低分</th>
+                  <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">排除前平均</th>
+                  <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">排除後平均</th>
+                  <th style="text-align:center;padding:8px 10px;border:1px solid var(--line);">影響 Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${trimmedEntries.map(({ d, stat }) => {
+                  const delta = stat.trimmedAvg - stat.rawAvg;
+                  const sign = delta >= 0 ? '+' : '';
+                  const deltaColor = Math.abs(delta) < 0.05 ? 'var(--ink-muted)' : (delta >= 0 ? '#B8860B' : '#4A6FA5');
+                  return `
+                    <tr>
+                      <td style="padding:7px 10px;border:1px solid var(--line);font-weight:500;">${escapeHtml(d.name)}</td>
+                      <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);">
+                        <span style="color:var(--ink);">${escapeHtml(mgrName(stat.excludedDetail.highest.mgrId))}</span>
+                        <br><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-muted);">${stat.excludedDetail.highest.val.toFixed(1)}</span>
+                      </td>
+                      <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);">
+                        <span style="color:var(--ink);">${escapeHtml(mgrName(stat.excludedDetail.lowest.mgrId))}</span>
+                        <br><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-muted);">${stat.excludedDetail.lowest.val.toFixed(1)}</span>
+                      </td>
+                      <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);font-family:'JetBrains Mono',monospace;">${stat.rawAvg.toFixed(3)}</td>
+                      <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-weight:600;">${stat.trimmedAvg.toFixed(3)}</td>
+                      <td style="text-align:center;padding:7px 10px;border:1px solid var(--line);font-family:'JetBrains Mono',monospace;color:${deltaColor};font-weight:${Math.abs(delta)>=0.1 ? '600':'400'};">${sign}${delta.toFixed(3)}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+            <div style="font-size:11px;color:var(--ink-faint);margin-top:10px;line-height:1.6;">
+              「影響 Δ」= 排除後平均 − 排除前平均。正值代表排除後分數被拉高(排除掉偏低的極端),負值代表拉低(排除掉偏高的極端)。|Δ| ≥ 0.1 會用顏色標示,值得留意。
+            </div>
+          </div>
+        </details>
+      `;
+    })() : ''}
     ${renderEmpBonusForAdmin(emp)}
   `;
 }
@@ -5833,6 +6053,10 @@ async function handleAction(e) {
       view.payload = { ...(view.payload || {}), techSplit: !view.payload?.techSplit };
       render();
       break;
+    case 'toggle-rater-adjust':
+      view.payload = { ...(view.payload || {}), raterAdjust: !view.payload?.raterAdjust };
+      render();
+      break;
     case 'export-ranking-ppt':
       await exportRankingPpt();
       break;
@@ -6964,6 +7188,7 @@ function handleExportCsv() {
   const trimMode = !!view.payload?.trimMode;
   const bonusMode = !!view.payload?.bonusMode;
   const techSplit = !!view.payload?.techSplit;
+  const raterAdjust = !!view.payload?.raterAdjust;
   const rows = [['目前職等', '目標職等', '技術組', '組內名次', 'Employee ID', '員工', '英文名', '技術', 'Email', '單位', '性別', '原始平均總分', '原始平均單項', '調整後平均總分', '調整後平均單項', 'Extra 加分', '加分後總分', '加分備註', 'IPP 總筆數', 'IPP 期間內', 'IPP 期間外', 'Travel 段數', 'Travel 計入天數', '是否觸發排除', '評分人數', '應評人數', '升遷資格']];
 
   // 同時計算兩種平均
@@ -6971,8 +7196,8 @@ function handleExportCsv() {
   state.employees.forEach(e => {
     const b = e.currentBand ?? '未設定';
     if (!bandGroups[b]) bandGroups[b] = [];
-    const raw = computeEmployeeAverage(e.id);
-    const trimmed = computeEmployeeAverageTrimmed(e.id);
+    const raw = computeEmployeeAverage(e.id, raterAdjust);
+    const trimmed = computeEmployeeAverageTrimmed(e.id, raterAdjust);
     const bonus = getEmployeeBonus(e.id);
     bandGroups[b].push({
       emp: e,
@@ -7082,7 +7307,7 @@ function handleExportDetailCsv() {
   sortedBands.forEach(band => {
     const targetBand = band !== '未設定' ? Number(band) + 1 : '—';
     bandGroups[band].forEach(e => {
-      const dimStats = computeDimensionStats(e.id);
+      const dimStats = computeDimensionStats(e.id, raterAdjust);
       state.managers.forEach(m => {
         // 跳過無評分權的主管
         if (!canManagerReview(m, e)) return;
@@ -7153,12 +7378,14 @@ async function exportRankingPpt() {
   const trimMode = !!view.payload?.trimMode;
   const bonusMode = !!view.payload?.bonusMode;
   const techSplit = !!view.payload?.techSplit;
+  const raterAdjust = !!view.payload?.raterAdjust;
 
   let modeDesc;
   if (!trimMode && !bonusMode) modeDesc = '原始平均';
   else if (trimMode && !bonusMode) modeDesc = '去頭去尾';
   else if (!trimMode && bonusMode) modeDesc = '原始 + 加分 (90/10)';
   else modeDesc = '去頭去尾 + 加分 (90/10)';
+  if (raterAdjust) modeDesc = '評審校正 + ' + modeDesc;
 
   // ==== LCFC Template 配色(取自公司官方 template)====
   const LCFC = {
@@ -7186,8 +7413,8 @@ async function exportRankingPpt() {
   const sortedBands = Object.keys(bandGroups).sort((a, b) => Number(a) - Number(b));
 
   const buildRows = (emps) => emps.map(e => {
-    const raw = computeEmployeeAverage(e.id);
-    const trimmed = computeEmployeeAverageTrimmed(e.id);
+    const raw = computeEmployeeAverage(e.id, raterAdjust);
+    const trimmed = computeEmployeeAverageTrimmed(e.id, raterAdjust);
     const bonus = getEmployeeBonus(e.id).score || 0;
     const row = {
       emp: e,
@@ -7291,6 +7518,99 @@ async function exportRankingPpt() {
     cover.addText(dateStr, {
       x: 0.6, y: 4.75, w: 8, h: 0.3,
       fontSize: 12, color: LCFC.textMuted,
+      fontFace: FONT,
+    });
+  }
+
+  // ====== 評審校正明細頁(raterAdjust 開啟時產生,放在封面後、Band 前,作為透明化說明)======
+  if (raterAdjust) {
+    const bias = getRaterBias();
+    const overall = bias.overallAvg;
+    const entries = Object.keys(bias.mgrAvg).map(mgrId => {
+      const mgr = state.managers.find(m => m.id === mgrId);
+      return {
+        mgrId,
+        name: mgr ? mgr.name : mgrId,
+        mgrAvg: bias.mgrAvg[mgrId],
+        delta: bias.mgrAvg[mgrId] - overall,
+        n: bias.mgrCompleteCount[mgrId] || 0,
+        eligible: !!bias.eligibleForAdjust[mgrId],
+      };
+    }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+    const bp = pptx.addSlide();
+    bp.background = { color: 'FFFFFF' };
+    addLcfcChrome(bp, 'LCFC Internal · 評審校正明細');
+
+    // 標題
+    addRedBulletTitle(bp,
+      '評審校正明細',
+      '透明化說明:每位評審被校正了多少,公式與結果全部公開');
+
+    // 公式說明
+    bp.addText([
+      { text: '校正公式:', options: { bold: true, fontSize: 12, color: LCFC.text, fontFace: FONT } },
+      { text: '  校正後分數 = 原始分數 − 評審個人平均 + 全體平均', options: { fontSize: 12, color: LCFC.text, fontFace: FONT } },
+    ], {
+      x: 0.5, y: 1.55, w: 12.3, h: 0.3,
+      fontFace: FONT,
+    });
+    bp.addText([
+      { text: '全體評審平均 = ', options: { fontSize: 12, color: LCFC.textMuted, fontFace: FONT } },
+      { text: overall.toFixed(3), options: { fontSize: 12, bold: true, color: LCFC.blue, fontFace: FONT } },
+      { text: '   ·   樣本不足保護:評分 < 3 位員工的評審不予校正', options: { fontSize: 11, color: LCFC.textMuted, fontFace: FONT } },
+    ], {
+      x: 0.5, y: 1.88, w: 12.3, h: 0.3,
+      fontFace: FONT,
+    });
+
+    // 表頭 + 資料
+    const header = [
+      { text: '評審', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, fontSize: 12, fontFace: FONT } },
+      { text: '評完整員工數', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+      { text: '個人平均', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+      { text: '偏差量 Δ', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+      { text: '寬嚴傾向', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+      { text: '是否校正', options: { bold: true, color: LCFC.text, fill: { color: LCFC.headerFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+    ];
+    const bRows = [header];
+    entries.forEach((e, i) => {
+      const rowFill = i % 2 === 0 ? 'FFFFFF' : LCFC.rowAlt;
+      const sign = e.delta >= 0 ? '+' : '';
+      let tendencyText = '—', tendencyColor = LCFC.textFaint;
+      if (e.eligible) {
+        if (Math.abs(e.delta) < 0.05) { tendencyText = '中立'; tendencyColor = LCFC.textMuted; }
+        else if (e.delta > 0) { tendencyText = '偏寬 ↑'; tendencyColor = 'B8860B'; }
+        else { tendencyText = '偏嚴 ↓'; tendencyColor = '4A6FA5'; }
+      }
+      const eligibleText = e.eligible ? '✓ 校正' : '✗ 樣本不足';
+      const eligibleColor = e.eligible ? LCFC.green : LCFC.textFaint;
+      const deltaColor = Math.abs(e.delta) >= 0.1 ? LCFC.red : LCFC.text;
+      bRows.push([
+        { text: e.name, options: { color: LCFC.text, fill: { color: rowFill }, bold: true, fontSize: 12, fontFace: FONT } },
+        { text: String(e.n), options: { color: LCFC.text, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+        { text: e.mgrAvg.toFixed(3), options: { color: LCFC.text, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+        { text: sign + e.delta.toFixed(3), options: { color: deltaColor, fill: { color: rowFill }, align: 'center', bold: Math.abs(e.delta) >= 0.1, fontSize: 12, fontFace: FONT } },
+        { text: tendencyText, options: { color: tendencyColor, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT } },
+        { text: eligibleText, options: { color: eligibleColor, fill: { color: rowFill }, align: 'center', bold: true, fontSize: 11, fontFace: FONT } },
+      ]);
+    });
+
+    bp.addTable(bRows, {
+      x: 0.5, y: 2.35, w: 12.3,
+      colW: [2.8, 2.0, 1.8, 1.8, 1.9, 2.0],
+      rowH: 0.36,
+      border: { type: 'solid', color: LCFC.border, pt: 0.5 },
+      fontFace: FONT,
+    });
+
+    // 底部註解
+    const noteY = 2.35 + (entries.length + 1) * 0.36 + 0.3;
+    bp.addText([
+      { text: '注解:', options: { bold: true, fontSize: 10, color: LCFC.text, fontFace: FONT } },
+      { text: '「偏差量 Δ」= 個人平均 − 全體平均。正值(偏寬)表示該評審習慣給高分,其評分會被向下校正;負值(偏嚴)則反之向上校正。', options: { fontSize: 10, color: LCFC.textMuted, fontFace: FONT } },
+    ], {
+      x: 0.5, y: Math.min(noteY, 6.6), w: 12.3, h: 0.4,
       fontFace: FONT,
     });
   }
@@ -7484,14 +7804,16 @@ async function exportRankingPpt() {
         x: 0.5, y: 1.75, w: 0.1, h: 0.1,
         fill: { color: LCFC.red }, line: { type: 'none' },
       });
-      s.addText('各維度評分', {
+      s.addText([
+        { text: '各維度評分', options: { fontSize: 14, bold: true, color: LCFC.text, fontFace: FONT } },
+        ...(raterAdjust ? [{ text: '   (已套用評審校正,詳見 P.2)', options: { fontSize: 10, color: LCFC.textMuted, italic: true, fontFace: FONT } }] : []),
+      ], {
         x: 0.68, y: 1.65, w: 12, h: 0.32,
-        fontSize: 14, bold: true, color: LCFC.text,
         fontFace: FONT,
       });
 
       const eligibleMgrs = eligibleManagers(emp);
-      const dimStatsForEmp = computeDimensionStats(emp.id);
+      const dimStatsForEmp = computeDimensionStats(emp.id, raterAdjust);
 
       // 把評過分的主管放前面,未評者擺後面
       const mgrsSorted = eligibleMgrs.slice().sort((a, b) => {
@@ -7527,21 +7849,53 @@ async function exportRankingPpt() {
         const excludedSet = new Set(st.excludedMgrs || []);
         mgrsSorted.forEach(m => {
           const s_ = getManagerScoreForEmployee(emp.id, m.id);
-          const v = s_[d.id];
-          const hasVal = typeof v === 'number';
-          const excluded = trimMode && excludedSet.has(m.id);
-          cells.push({
-            text: hasVal ? v.toFixed(1) : '—',
-            options: {
-              color: !hasVal ? LCFC.textFaint : (excluded ? LCFC.textMuted : (v < 4 ? LCFC.red : LCFC.text)),
-              fill: { color: rowFill },
-              align: 'center',
-              fontSize: 11,
-              bold: hasVal && !excluded,
-              italic: excluded,
-              fontFace: FONT,
+          const rawV = s_[d.id];
+          const hasVal = typeof rawV === 'number';
+          // raterAdjust 時顯示校正後分數,否則顯示原始
+          let displayV = rawV;
+          let adjusted = false;
+          if (raterAdjust && hasVal) {
+            const bias = getRaterBias();
+            if (bias.eligibleForAdjust[m.id]) {
+              displayV = Math.max(1, Math.min(5, rawV - bias.mgrAvg[m.id] + bias.overallAvg));
+              if (Math.abs(displayV - rawV) >= 0.01) adjusted = true;
             }
-          });
+          }
+          const excluded = trimMode && excludedSet.has(m.id);
+          // 校正量大(|Δ|≥0.1)時,在格內用 rich text 顯示:大字校正後、小字刪除線原始
+          const showOriginal = adjusted && Math.abs(displayV - rawV) >= 0.1;
+          if (!hasVal) {
+            cells.push({
+              text: '—',
+              options: { color: LCFC.textFaint, fill: { color: rowFill }, align: 'center', fontSize: 11, fontFace: FONT }
+            });
+          } else if (showOriginal) {
+            cells.push({
+              text: [
+                { text: displayV.toFixed(2), options: {
+                    color: excluded ? LCFC.textMuted : (displayV < 4 ? LCFC.red : LCFC.text),
+                    bold: !excluded, italic: excluded, fontSize: 10, fontFace: FONT,
+                    strike: excluded,
+                    breakLine: true,
+                } },
+                { text: '原 ' + rawV.toFixed(1), options: { color: LCFC.textFaint, italic: true, fontSize: 7, fontFace: FONT, strike: true } },
+              ],
+              options: { fill: { color: rowFill }, align: 'center', valign: 'middle' }
+            });
+          } else {
+            cells.push({
+              text: adjusted ? displayV.toFixed(2) : rawV.toFixed(1),
+              options: {
+                color: excluded ? LCFC.textMuted : (displayV < 4 ? LCFC.red : LCFC.text),
+                fill: { color: rowFill },
+                align: 'center',
+                fontSize: 11,
+                bold: !excluded,
+                italic: excluded,
+                fontFace: FONT,
+              }
+            });
+          }
         });
         const shown = trimMode ? st.trimmedAvg : st.rawAvg;
         const avgColor = (shown === null || shown === undefined) ? LCFC.textFaint : (shown < 4 ? LCFC.red : LCFC.text);
@@ -7560,19 +7914,22 @@ async function exportRankingPpt() {
       const perMgrW = mgrsSorted.length > 0 ? mgrColTotal / mgrsSorted.length : 0;
       const dimColW = [nameColW, ...mgrsSorted.map(() => perMgrW), avgColW];
 
+      const dimRowH = raterAdjust ? 0.29 : 0.27;
+      // PptxGenJS 在 rich text 多行時實際會比設定更高,算 bottom 時要保守估
+      const dimRowHEffective = raterAdjust ? 0.34 : 0.27;
       s.addTable(dimRows, {
         x: 0.5, y: 2.05, w: dimTableW,
         colW: dimColW,
-        rowH: 0.27,
+        rowH: dimRowH,
         border: { type: 'solid', color: LCFC.border, pt: 0.5 },
         fontFace: FONT,
       });
 
-      // 維度表底部 y(動態算):header(0.27) + 9 個維度(9 * 0.27) = 2.7,加 startY 2.05 → 約 4.75
-      const dimTableBottomY = 2.05 + (state.dimensions.length + 1) * 0.27;
+      // 維度表底部 y(動態算,rich text 多行時 pptxgen 會拉高,用 effective 值)
+      const dimTableBottomY = 2.05 + (state.dimensions.length + 1) * dimRowHEffective;
 
       // ====== 下半:通過審核的加分項(全寬,每筆獨立一列,detail 也逐筆斷行)======
-      const bonusStartY = dimTableBottomY + 0.3;  // 與上方表格留白
+      const bonusStartY = dimTableBottomY + (raterAdjust ? 0.45 : 0.3);  // 與上方表格留白(校正模式時多留)
 
       s.addShape('ellipse', {
         x: 0.5, y: bonusStartY + 0.1, w: 0.1, h: 0.1,
