@@ -1473,7 +1473,7 @@ table.results .score-cell {
 // STORAGE LAYER (window.storage with shared=true so manager can see all data)
 // =========================================================================
 const STORE_KEY = 'promotion_review_v23';
-const APP_VERSION = '2026-04-21.57';  // 顯示於頁面右下角,每次 ship 會更新
+const APP_VERSION = '2026-04-21.60';  // 顯示於頁面右下角,每次 ship 會更新
 
 const defaultState = () => ({
   managerPassword: 'dorisshih',
@@ -3380,6 +3380,7 @@ const ADMIN_TABS = [
   { id: 'stats', label: '評分統計' },
   { id: 'bonus', label: 'Extra Contribution' },
   { id: 'review', label: '自填審核' },
+  { id: 'ipp', label: 'IPP 總明細' },
   { id: 'employees', label: '員工管理' },
   { id: 'managers', label: '主管管理' },
   { id: 'dimensions', label: '評分維度' },
@@ -3402,6 +3403,7 @@ function renderAdminTab(tab) {
   if (tab === 'stats') return renderStatsTab();
   if (tab === 'bonus') return renderBonusTab();
   if (tab === 'review') return renderReviewTab();
+  if (tab === 'ipp') return renderIppTab();
   if (tab === 'employees') return renderEmployeesTab();
   if (tab === 'managers') return renderManagersTab();
   if (tab === 'dimensions') return renderDimensionsTab();
@@ -4894,6 +4896,225 @@ function renderReviewOthersRow(emp, sub, isDraft = false) {
   `;
 }
 
+// ─────────────────────── IPP 總明細 tab ───────────────────────
+// 依 Band 分組,每個 Band 內按排名分數排序(預設用「評審校正 + 含加分」最終分數)
+// 列出每位候選人的所有 IPP(含通過/未通過/未審),沒填 IPP 的人也列一筆「— 無 IPP」
+function renderIppTab() {
+  // 排序基準:預設用「評審校正 + 加分(90/10)」的最終分數
+  // 如果其中一些 toggle 沒開,還是用最完整的版本來排,跟正式排名一致即可
+  const trimMode = !!view.payload?.trimMode;
+  const bonusMode = !!view.payload?.bonusMode;
+  const raterAdjust = !!view.payload?.raterAdjust;
+
+  // ===== 計算每位員工的排名分數 =====
+  const empScoreMap = {};
+  state.employees.forEach(e => {
+    const raw = computeEmployeeAverage(e.id, raterAdjust);
+    const trimmed = computeEmployeeAverageTrimmed(e.id, raterAdjust);
+    const bonus = getEmployeeBonus(e.id).score || 0;
+    const row = { rawAvg: raw.avg, trimmedAvg: trimmed.avg, bonus };
+    empScoreMap[e.id] = computeScoreByMode(row, trimMode, bonusMode);
+  });
+
+  // ===== 依 Band 分組 =====
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  // 每組內按排名分數降序
+  Object.keys(bandGroups).forEach(b => {
+    bandGroups[b].sort((a, b2) => {
+      const sa = empScoreMap[a.id], sb = empScoreMap[b2.id];
+      if (sa === null && sb === null) return 0;
+      if (sa === null) return 1;
+      if (sb === null) return -1;
+      return sb - sa;
+    });
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(a) - Number(b);
+  });
+
+  // ===== 收集所有 row(含未通過、無 IPP 的)=====
+  const allRows = [];
+  sortedBands.forEach(band => {
+    bandGroups[band].forEach((emp, rankIdx) => {
+      const sub = getEmployeeSubmission(emp.id);
+      const ippDetails = normalizeDetail(sub.data?.itemDetails?.ipp);
+      const targetBand = band !== '未設定' ? (Number(band) + 1) : '?';
+      const empMeta = {
+        band, targetBand,
+        rank: rankIdx + 1,
+        empId: emp.id,
+        empName: emp.name,
+        enName: emp.enName || '',
+        dept: displayDept(emp.dept),
+        score: empScoreMap[emp.id],
+      };
+      if (ippDetails.length === 0) {
+        allRows.push({ ...empMeta, hasIpp: false });
+      } else {
+        // 過濾掉「未通過」的 IPP,只列通過 + 未審
+        const visibleIpps = ippDetails.filter(ipp => ipp.reviewDecision !== 'rejected');
+        if (visibleIpps.length === 0) {
+          // 全部 IPP 都未通過 → 視同沒有 IPP
+          allRows.push({ ...empMeta, hasIpp: false });
+        } else {
+          visibleIpps.forEach(ipp => {
+            allRows.push({
+              ...empMeta,
+              hasIpp: true,
+              ippName: ipp.name || '',
+              occurredAt: ipp.occurredAt || '',
+              weight: ipp.weight ? formatIppWeightDisplay(ipp.weight) : '',
+              decision: ipp.reviewDecision || 'pending',
+            });
+          });
+        }
+      }
+    });
+  });
+
+  // ===== 統計 =====
+  const totalEmps = state.employees.length;
+  const acceptedCount = allRows.filter(r => r.hasIpp && r.decision === 'accepted').length;
+  const pendingCount = allRows.filter(r => r.hasIpp && r.decision !== 'accepted').length;
+  const noIppCount = allRows.filter(r => !r.hasIpp).length;
+
+  // ===== 模式提示 =====
+  const modeText = `排名依據:${raterAdjust ? '評審校正 + ' : ''}${trimMode ? '去頭去尾' : '原始平均'}${bonusMode ? ' + 加分(90/10)' : ''}`;
+
+  const decisionTag = (d) => {
+    if (d === 'accepted') return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#E8F5E9;color:#1F7A1F;font-size:11px;font-weight:600;">✓ 通過</span>`;
+    if (d === 'rejected') return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#FDECEA;color:#A50C0F;font-size:11px;font-weight:600;">✗ 未通過</span>`;
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#FFF8E1;color:#8B7000;font-size:11px;font-weight:600;">⏳ 未審核</span>`;
+  };
+
+  // ===== 表格 row 渲染 =====
+  // 用 rowspan 把同一員工的多筆 IPP 合併員工欄位(以利複製到 Excel)
+  let lastEmpId = null;
+  let lastBand = null;
+  const tableRows = [];
+
+  allRows.forEach((r, i) => {
+    const isNewBand = r.band !== lastBand;
+    const isNewEmp = r.empId !== lastEmpId;
+
+    // Band 分隔列(若是新 Band)
+    if (isNewBand) {
+      tableRows.push(`
+        <tr style="background:#1F1F1F;color:#fff;">
+          <td colspan="7" style="padding:10px 14px;font-weight:600;font-size:14px;">
+            Band ${r.band} → ${r.targetBand}  <span style="color:#B0B0B0;font-weight:400;font-size:12px;margin-left:8px;">(${bandGroups[r.band].length} 位候選人)</span>
+          </td>
+        </tr>
+      `);
+      lastBand = r.band;
+      lastEmpId = null;  // 換 Band 也要重新算 empId
+    }
+
+    const rowStyle = i % 2 === 1 ? 'background:#FCFCFC;' : '';
+    const empCell = isNewEmp ? `
+      <td style="padding:8px 12px;vertical-align:top;border-right:1px solid var(--line-soft);">
+        <div style="font-weight:600;color:var(--ink);">${escapeHtml(r.empName)}</div>
+        ${r.enName ? `<div style="font-size:11px;color:var(--ink-muted);">${escapeHtml(r.enName)}</div>` : ''}
+        <div style="font-size:11px;color:var(--ink-muted);margin-top:2px;">${escapeHtml(r.dept)}</div>
+      </td>
+    ` : `<td style="padding:0;border-right:1px solid var(--line-soft);"></td>`;
+    const rankCell = isNewEmp ? `
+      <td style="text-align:center;padding:8px;vertical-align:top;border-right:1px solid var(--line-soft);">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);">#${r.rank}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-muted);margin-top:2px;">${r.score !== null ? r.score.toFixed(2) : '—'}</div>
+      </td>
+    ` : `<td style="padding:0;border-right:1px solid var(--line-soft);"></td>`;
+
+    if (!r.hasIpp) {
+      tableRows.push(`
+        <tr style="${rowStyle}border-bottom:1px solid var(--line-soft);">
+          ${rankCell}
+          ${empCell}
+          <td colspan="4" style="padding:10px 12px;color:var(--ink-faint);font-style:italic;font-size:12px;">— 此員工未填寫任何 IPP —</td>
+        </tr>
+      `);
+    } else {
+      tableRows.push(`
+        <tr style="${rowStyle}border-bottom:1px solid var(--line-soft);">
+          ${rankCell}
+          ${empCell}
+          <td style="padding:8px 12px;color:var(--ink);">${escapeHtml(r.ippName)}</td>
+          <td style="text-align:center;padding:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);">${escapeHtml(r.occurredAt) || '—'}</td>
+          <td style="text-align:center;padding:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);">${escapeHtml(r.weight) || '—'}</td>
+          <td style="text-align:center;padding:8px;">${decisionTag(r.decision)}</td>
+        </tr>
+      `);
+    }
+    lastEmpId = r.empId;
+  });
+
+  return `
+    <div style="max-width:1400px;">
+      <div class="section-head" style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h2 style="margin:0;">IPP 總明細</h2>
+          <div style="font-size:13px;color:var(--ink-muted);margin-top:6px;line-height:1.6;">
+            列出所有候選人的 IPP(僅含通過 / 未審,已隱藏未通過項目),依 Band 分組,組內按排名分數排序。<br>
+            <span style="color:var(--ink-soft);">${escapeHtml(modeText)}</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--ink);background:#F8F8F8;padding:10px 16px;border-radius:8px;border:1px solid var(--line);line-height:1.7;">
+          <div><b>${totalEmps}</b> 位候選人</div>
+          <div style="color:#1F7A1F;">✓ 通過 <b>${acceptedCount}</b> 筆</div>
+          ${pendingCount > 0 ? `<div style="color:#8B7000;">⏳ 未審 <b>${pendingCount}</b> 筆</div>` : ''}
+          ${noIppCount > 0 ? `<div style="color:var(--ink-muted);">— 無 IPP <b>${noIppCount}</b> 位</div>` : ''}
+        </div>
+      </div>
+
+      ${allRows.length === 0 ? `
+        <div class="empty" style="padding:40px;text-align:center;color:var(--ink-muted);">
+          目前沒有任何候選人
+        </div>
+      ` : `
+        <div style="margin-top:16px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#F0F0F0;color:var(--ink);">
+                <th style="text-align:center;padding:10px 8px;border-bottom:1px solid var(--line);width:80px;">名次</th>
+                <th style="text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);width:200px;">員工</th>
+                <th style="text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);">IPP 名稱</th>
+                <th style="text-align:center;padding:10px 8px;border-bottom:1px solid var(--line);width:110px;">發生月份</th>
+                <th style="text-align:center;padding:10px 8px;border-bottom:1px solid var(--line);width:100px;">掛名權重</th>
+                <th style="text-align:center;padding:10px 8px;border-bottom:1px solid var(--line);width:100px;">審核結果</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows.join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn-primary" data-action="ipp-copy-tsv" title="複製為 TSV(Tab 分隔),可直接貼到 Excel/Sheets">
+            📋 複製為 Excel 格式 (TSV)
+          </button>
+          <button class="btn-secondary" data-action="ipp-copy-csv" title="複製為 CSV(逗號分隔)">
+            📋 複製為 CSV
+          </button>
+          <button class="btn-secondary" data-action="ipp-export-csv" title="下載 CSV 檔">
+            📥 下載 CSV 檔
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.6;">
+          ※ 複製/匯出僅包含「通過」與「未審」的 IPP,未通過項目已隱藏。<br>
+          ※ 也可以直接框選表格內容(滑鼠拖曳),按 Ctrl+C 複製,貼到 Word 會保留表格樣式。
+        </div>
+      `}
+    </div>
+  `;
+}
 function renderEmployeesTab() {
   // group by band
   const bandGroups = {};
@@ -6060,6 +6281,15 @@ async function handleAction(e) {
     case 'export-ranking-ppt':
       await exportRankingPpt();
       break;
+    case 'ipp-copy-tsv':
+      handleIppCopy('tsv');
+      break;
+    case 'ipp-copy-csv':
+      handleIppCopy('csv');
+      break;
+    case 'ipp-export-csv':
+      handleIppExportCsv();
+      break;
     case 'toggle-bonus-emp':
       view.payload = { ...(view.payload || {}), expandedBonus: view.payload?.expandedBonus === id ? null : id };
       render();
@@ -7182,6 +7412,145 @@ function handleToggleDetail(targetId, btn) {
     row.classList.add('hidden');
     btn.textContent = '展開';
   }
+}
+
+// ─────────────────────── IPP 總明細:複製 / 匯出 helpers ───────────────────────
+// 收集所有 IPP rows(含未通過/未審/無 IPP),依 Band → 排名分數排序
+function _gatherAllIppRows() {
+  const trimMode = !!view.payload?.trimMode;
+  const bonusMode = !!view.payload?.bonusMode;
+  const raterAdjust = !!view.payload?.raterAdjust;
+
+  const empScoreMap = {};
+  state.employees.forEach(e => {
+    const raw = computeEmployeeAverage(e.id, raterAdjust);
+    const trimmed = computeEmployeeAverageTrimmed(e.id, raterAdjust);
+    const bonus = getEmployeeBonus(e.id).score || 0;
+    const row = { rawAvg: raw.avg, trimmedAvg: trimmed.avg, bonus };
+    empScoreMap[e.id] = computeScoreByMode(row, trimMode, bonusMode);
+  });
+
+  const bandGroups = {};
+  state.employees.forEach(e => {
+    const b = e.currentBand ?? '未設定';
+    if (!bandGroups[b]) bandGroups[b] = [];
+    bandGroups[b].push(e);
+  });
+  Object.keys(bandGroups).forEach(b => {
+    bandGroups[b].sort((a, b2) => {
+      const sa = empScoreMap[a.id], sb = empScoreMap[b2.id];
+      if (sa === null && sb === null) return 0;
+      if (sa === null) return 1;
+      if (sb === null) return -1;
+      return sb - sa;
+    });
+  });
+  const sortedBands = Object.keys(bandGroups).sort((a, b) => {
+    if (a === '未設定') return 1;
+    if (b === '未設定') return -1;
+    return Number(a) - Number(b);
+  });
+
+  const rows = [];
+  sortedBands.forEach(band => {
+    bandGroups[band].forEach((emp, rankIdx) => {
+      const sub = getEmployeeSubmission(emp.id);
+      const ippDetails = normalizeDetail(sub.data?.itemDetails?.ipp);
+      const targetBand = band !== '未設定' ? (Number(band) + 1) : '?';
+      const empMeta = {
+        band: band !== '未設定' ? String(band) : '',
+        targetBand: String(targetBand),
+        rank: rankIdx + 1,
+        empName: emp.name,
+        enName: emp.enName || '',
+        dept: displayDept(emp.dept),
+        score: empScoreMap[emp.id] !== null ? empScoreMap[emp.id].toFixed(2) : '',
+      };
+      if (ippDetails.length === 0) {
+        rows.push({ ...empMeta, ippName: '— 未填寫 IPP —', occurredAt: '', weight: '', decisionLabel: '' });
+      } else {
+        const visibleIpps = ippDetails.filter(ipp => ipp.reviewDecision !== 'rejected');
+        if (visibleIpps.length === 0) {
+          rows.push({ ...empMeta, ippName: '— 未填寫 IPP —', occurredAt: '', weight: '', decisionLabel: '' });
+        } else {
+          visibleIpps.forEach(ipp => {
+            const decisionLabel = ipp.reviewDecision === 'accepted' ? '通過' : '未審核';
+            rows.push({
+              ...empMeta,
+              ippName: ipp.name || '',
+              occurredAt: ipp.occurredAt || '',
+              weight: ipp.weight ? formatIppWeightDisplay(ipp.weight) : '',
+              decisionLabel,
+            });
+          });
+        }
+      }
+    });
+  });
+  return rows;
+}
+
+function _ippRowsToText(format) {
+  const sep = format === 'tsv' ? '\t' : ',';
+  const escape = (s) => {
+    s = String(s ?? '');
+    if (format === 'csv' && (s.includes(',') || s.includes('"') || s.includes('\n'))) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    if (format === 'tsv') {
+      return s.replace(/\t/g, ' ').replace(/\n/g, ' ').replace(/\r/g, '');
+    }
+    return s;
+  };
+  const headers = ['Band', '目標 Band', '組內名次', '排名分數', '員工', '英文名', '部門', 'IPP 名稱', '發生月份', '掛名權重', '審核結果'];
+  const rows = _gatherAllIppRows();
+  const lines = [headers.map(escape).join(sep)];
+  rows.forEach(r => {
+    lines.push([
+      r.band, r.targetBand, String(r.rank), r.score,
+      r.empName, r.enName, r.dept,
+      r.ippName, r.occurredAt, r.weight,
+      r.decisionLabel,
+    ].map(escape).join(sep));
+  });
+  return lines.join('\n');
+}
+
+async function handleIppCopy(format) {
+  const text = _ippRowsToText(format);
+  const rowCount = _gatherAllIppRows().length;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`✓ 已複製 ${rowCount} 列到剪貼簿(${format.toUpperCase()} 格式)`);
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      toast(`✓ 已複製 ${rowCount} 列到剪貼簿(${format.toUpperCase()} 格式)`);
+    } catch (e2) {
+      toast('✗ 複製失敗,請改用「下載 CSV 檔」');
+    }
+    document.body.removeChild(ta);
+  }
+}
+
+function handleIppExportCsv() {
+  const csv = _ippRowsToText('csv');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `IPP總明細_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(`✓ 已下載 ${_gatherAllIppRows().length} 列`);
 }
 
 function handleExportCsv() {
